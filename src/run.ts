@@ -83,15 +83,23 @@ export async function pollAndNotify(
 
   // §FR6 — alert once per distinct signature. Parsed eligible dates make the
   // signature; an opaque payload hashes to itself so identical dumps de-dup.
+  // One timestamp for the whole detection event keeps de-dup, capture and the
+  // alert's detectedAt consistent.
   const signature = opaque ? `opaque:${JSON.stringify(payload)}` : dates.join(",");
-  const decision = policy.state.decide(key, signature, now(), policy.cooldownMs);
+  const detectedAtDate = now();
+  const decision = policy.state.decide(
+    key,
+    signature,
+    detectedAtDate,
+    policy.cooldownMs,
+  );
   if (!decision.alert) {
     log(`slot for ${label} already alerted (${decision.reason}) — skipping`);
     return { hit: true, alerted: false };
   }
 
   // We will alert. Enrich names (§3.3) and keep the raw calendar for capture.
-  const detectedAt = now().toISOString();
+  const detectedAt = detectedAtDate.toISOString();
   let calendarRaw: unknown;
   let enriched: EnrichedNames = {};
   try {
@@ -104,7 +112,7 @@ export async function pollAndNotify(
   // §8.4 capture-on-hit: dump the raw §3.2 + §3.3 payloads on the first HIT.
   if (policy.capture && !policy.state.hasCaptured()) {
     try {
-      policy.capture(target, payload, calendarRaw, now());
+      policy.capture(target, payload, calendarRaw, detectedAtDate);
       policy.state.markCaptured();
       log(`captured first-HIT raw payloads for ${label}`);
     } catch (err) {
@@ -126,7 +134,7 @@ export async function pollAndNotify(
   log(`HIT for ${label} (${decision.reason}) — notifying Telegram`);
   await sendTelegramAlert(telegram, hit, fetchImpl);
   // Only record after a successful send so a failed alert retries next cycle.
-  policy.state.recordAlert(key, signature, now());
+  policy.state.recordAlert(key, signature, detectedAtDate);
   log(`Telegram alert sent for ${label}`);
 
   return { hit: true, alerted: true, detectedAt };
