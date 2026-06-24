@@ -170,7 +170,8 @@ export async function runOnce(
   };
 
   // Poll every target once; a single target's failure must not stop the rest
-  // (§FR1). Aggregate to "hit if any target hit / alerted".
+  // (§FR1). Aggregate to "hit if any target hit / alerted": an alerted target
+  // always wins (last one's detectedAt); otherwise the first plain hit holds.
   let aggregate: RunResult = { hit: false };
   for (const target of targets) {
     try {
@@ -181,13 +182,8 @@ export async function runOnce(
         deps,
         policy,
       );
-      if (result.alerted)
-        aggregate = {
-          hit: true,
-          alerted: true,
-          detectedAt: result.detectedAt,
-        };
-      else if (result.hit && !aggregate.alerted) aggregate = { ...result };
+      if (result.alerted || (result.hit && !aggregate.alerted))
+        aggregate = { ...result };
     } catch (err) {
       log(`target ${targetLabel(target)} failed: ${(err as Error).message}`);
     }
