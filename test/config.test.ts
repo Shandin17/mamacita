@@ -131,6 +131,32 @@ test("state + minDateISO are configurable via file and env", () => {
   assert.equal(withEnv.state.file, "/tmp/state.json");
 });
 
+test("liveness defaults are applied when absent (§FR2/§8.2)", () => {
+  const cfg = loadConfig(base, {});
+  assert.equal(cfg.liveness.heartbeatHour, 9);
+  assert.equal(cfg.liveness.degradedThreshold, 3);
+  assert.equal(cfg.liveness.statusCommand, true);
+});
+
+test("liveness is configurable via file and env", () => {
+  const withFile = loadConfig(
+    { ...base, liveness: { heartbeatHour: 8, degradedThreshold: 5 } },
+    {},
+  );
+  assert.equal(withFile.liveness.heartbeatHour, 8);
+  assert.equal(withFile.liveness.degradedThreshold, 5);
+  assert.equal(withFile.liveness.statusCommand, true); // untouched default
+
+  const withEnv = loadConfig(base, {
+    HEARTBEAT_HOUR: "11",
+    DEGRADED_THRESHOLD: "2",
+    STATUS_COMMAND: "false",
+  });
+  assert.equal(withEnv.liveness.heartbeatHour, 11);
+  assert.equal(withEnv.liveness.degradedThreshold, 2);
+  assert.equal(withEnv.liveness.statusCommand, false);
+});
+
 test("throws on invalid target servicio", () => {
   assert.throws(() =>
     loadConfig({ ...base, target: { servicio: -1, centro: 5 } }, {}),

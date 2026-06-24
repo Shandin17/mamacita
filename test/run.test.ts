@@ -27,6 +27,7 @@ const config: Config = {
   backoff: { baseSec: 30, factor: 2, capSec: 900 },
   state: { cooldownSec: 21600, captureDir: "captures" },
   minDateISO: "2026-06-27",
+  liveness: { heartbeatHour: -1, degradedThreshold: 3, statusCommand: false },
 };
 
 const indexResp = () =>

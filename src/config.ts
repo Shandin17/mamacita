@@ -61,6 +61,17 @@ const stateSchema = z
   })
   .prefault({});
 
+// PRD §FR2/§8.2 — liveness: daily heartbeat (09:00 local by default; set <0 to
+// disable), degraded alert after 3 consecutive fully-failed cycles, and the
+// /status command (on by default).
+const livenessSchema = z
+  .object({
+    heartbeatHour: z.number().int().min(-1).max(23).default(9),
+    degradedThreshold: z.number().int().positive().default(3),
+    statusCommand: z.boolean().default(true),
+  })
+  .prefault({});
+
 const configSchema = z.object({
   target: targetSchema,
   telegram: telegramSchema,
@@ -71,6 +82,7 @@ const configSchema = z.object({
   // the example config can ship a blank placeholder.
   manualCookie: z.string().optional(),
   state: stateSchema,
+  liveness: livenessSchema,
   // §FR1 — drop bookable dates earlier than this; default per PRD.
   minDateISO: z
     .string()
@@ -110,6 +122,10 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     string,
     unknown
   >;
+  const liveness = { ...((base.liveness as object) ?? {}) } as Record<
+    string,
+    unknown
+  >;
 
   if (env.TARGET_SERVICIO !== undefined)
     target.servicio = Number(env.TARGET_SERVICIO);
@@ -142,6 +158,15 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
   const minDateISO =
     env.MIN_DATE_ISO !== undefined ? env.MIN_DATE_ISO : base.minDateISO;
 
+  // §FR2/§8.2 liveness overrides.
+  if (env.HEARTBEAT_HOUR !== undefined)
+    liveness.heartbeatHour = Number(env.HEARTBEAT_HOUR);
+  if (env.DEGRADED_THRESHOLD !== undefined)
+    liveness.degradedThreshold = Number(env.DEGRADED_THRESHOLD);
+  if (env.STATUS_COMMAND !== undefined)
+    liveness.statusCommand =
+      env.STATUS_COMMAND !== "false" && env.STATUS_COMMAND !== "0";
+
   const out: Record<string, unknown> = {
     ...base,
     target,
@@ -149,6 +174,7 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     schedule,
     backoff,
     state,
+    liveness,
     minDateISO,
   };
   if (env.MANUAL_COOKIE !== undefined) out.manualCookie = env.MANUAL_COOKIE;

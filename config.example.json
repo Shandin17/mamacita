@@ -23,6 +23,11 @@
     "cooldownSec": 21600,
     "captureDir": "captures"
   },
+  "liveness": {
+    "heartbeatHour": 9,
+    "degradedThreshold": 3,
+    "statusCommand": true
+  },
   "profile": {
     "nombre": "",
     "apellidos": "",

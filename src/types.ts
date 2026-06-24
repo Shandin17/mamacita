@@ -60,6 +60,14 @@ export type StateConfig = {
   captureDir: string; // where the first-HIT raw payload dump is written
 };
 
+// PRD §FR2/§8.2 — liveness signals: daily heartbeat, degraded-state alert and
+// the /status command. All schedules/thresholds configurable.
+export type LivenessConfig = {
+  heartbeatHour: number; // local hour (timezone of schedule) for the daily heartbeat; <0 disables
+  degradedThreshold: number; // consecutive fully-failed cycles before the degraded alert
+  statusCommand: boolean; // poll Telegram getUpdates and answer /status on demand
+};
+
 export type Config = {
   target: Target;
   telegram: TelegramConfig;
@@ -70,6 +78,7 @@ export type Config = {
   manualCookie?: string;
   state: StateConfig;
   minDateISO: string; // §FR1 — drop bookable dates earlier than this
+  liveness: LivenessConfig;
 };
 
 // PRD §3.1 — a center entry returned by the centers-for-service endpoint.

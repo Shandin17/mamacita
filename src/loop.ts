@@ -2,6 +2,13 @@ import { Backoff } from "./backoff.ts";
 import { captureToDir } from "./capture.ts";
 import { CookieJar } from "./cookies.ts";
 import {
+  buildDegradedText,
+  buildHeartbeatText,
+  buildRecoveredText,
+  buildStatusText,
+  LivenessTracker,
+} from "./liveness.ts";
+import {
   pollAndNotify,
   targetLabel,
   type CaptureFn,
@@ -14,8 +21,9 @@ import {
   msUntilNextActiveWindow,
 } from "./schedule.ts";
 import { bootstrapSession } from "./session.ts";
-import { MonitorState } from "./state.ts";
+import { MonitorState, targetKey } from "./state.ts";
 import { buildTargetMatrix } from "./targets.ts";
+import { fetchUpdates, sendTelegramMessage } from "./telegram.ts";
 import type { Config, Target } from "./types.ts";
 
 export type LoopDeps = {
@@ -36,6 +44,8 @@ export type LoopDeps = {
   state?: MonitorState;
   // §8.4 capture-on-hit sink (defaults to a disk dump under captureDir).
   capture?: CaptureFn;
+  // §FR2/§8.2 liveness tracker (defaults to a fresh in-memory tracker).
+  liveness?: LivenessTracker;
 };
 
 const realSleep = (ms: number): Promise<void> =>
@@ -94,6 +104,51 @@ export async function runLoop(
     capMs: config.backoff.capSec * 1000,
   });
 
+  // §FR2/§8.2 liveness: heartbeat / degraded alert / /status. The tracker is
+  // updated as targets are polled; the getUpdates offset confirms seen updates.
+  const liveness = deps.liveness ?? new LivenessTracker();
+  const live = config.liveness;
+  let updateOffset = 0;
+
+  // Service the on-demand /status command and the daily heartbeat. Runs every
+  // cycle — including blocked ones — so the user can always query a degraded
+  // monitor. All Telegram I/O is best-effort: a failure here never stops polling.
+  const serviceLiveness = async (): Promise<void> => {
+    if (live.statusCommand) {
+      try {
+        const updates = await fetchUpdates(config.telegram, updateOffset, fetchImpl);
+        for (const u of updates) {
+          updateOffset = Math.max(updateOffset, u.update_id + 1);
+          const text = (u.message?.text ?? "").trim();
+          if (text === "/status" || text.startsWith("/status@")) {
+            await sendTelegramMessage(
+              config.telegram,
+              buildStatusText(liveness.snapshot(backoff.isBackedOff)),
+              fetchImpl,
+            );
+            log("replied to /status");
+          }
+        }
+      } catch (err) {
+        log(`status poll failed: ${(err as Error).message}`);
+      }
+    }
+
+    if (liveness.dueForHeartbeat(now(), live.heartbeatHour, sched.timezone)) {
+      try {
+        await sendTelegramMessage(
+          config.telegram,
+          buildHeartbeatText(liveness.snapshot(backoff.isBackedOff), now()),
+          fetchImpl,
+        );
+        liveness.markHeartbeatSent(now(), sched.timezone);
+        log("daily heartbeat sent");
+      } catch (err) {
+        log(`heartbeat failed: ${(err as Error).message}`);
+      }
+    }
+  };
+
   while (shouldContinue()) {
     // Active-hours + weekday gating (§FR4): off-hours, sleep until it reopens.
     if (!isActiveHours(now(), sched)) {
@@ -112,27 +167,67 @@ export async function runLoop(
 
       const target = targets[i];
       const label = targetLabel(target);
+      const key = targetKey(target);
       polled++;
       try {
-        await pollAndNotify(
+        const result = await pollAndNotify(
           target,
           config.telegram,
           jar,
           { fetchImpl, now, log },
           policy,
         );
+        liveness.recordTargetResult(
+          key,
+          label,
+          result.hit ? "hit" : "no-slot",
+          now(),
+        );
       } catch (err) {
         // Survive a single target's failure and continue (§FR7/resilience).
         failures++;
+        liveness.recordTargetResult(key, label, "failed", now());
         log(`target ${label} failed: ${(err as Error).message}`);
       }
     }
 
     if (!shouldContinue()) break;
 
+    // §8.2/§FR2: answer /status and send the daily heartbeat (every cycle, even
+    // when blocked, so a degraded monitor can still be queried).
+    await serviceLiveness();
+
+    // §FR2: degraded-state bookkeeping — a fully-failed cycle counts toward the
+    // threshold; alert once when it trips and once again on recovery.
+    const allFailed = polled > 0 && failures === polled;
+    const cycle = liveness.recordCycle(allFailed, live.degradedThreshold);
+    if (cycle.degradedTripped) {
+      try {
+        await sendTelegramMessage(
+          config.telegram,
+          buildDegradedText(liveness.snapshot(backoff.isBackedOff)),
+          fetchImpl,
+        );
+        log(`degraded-state alert sent after ${live.degradedThreshold} failed cycles`);
+      } catch (err) {
+        log(`degraded alert failed: ${(err as Error).message}`);
+      }
+    } else if (cycle.recovered) {
+      try {
+        await sendTelegramMessage(
+          config.telegram,
+          buildRecoveredText(liveness.snapshot(backoff.isBackedOff)),
+          fetchImpl,
+        );
+        log("recovery alert sent");
+      } catch (err) {
+        log(`recovery alert failed: ${(err as Error).message}`);
+      }
+    }
+
     // §FR4/§FR5: every target failing means the session is dead or we're
     // blocked — re-bootstrap and back off exponentially before resuming.
-    if (polled > 0 && failures === polled) {
+    if (allFailed) {
       const wait = backoff.next();
       log(
         `all ${polled} targets failed — session likely dead; backing off ${Math.round(

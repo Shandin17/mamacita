@@ -33,6 +33,18 @@ export function zonedParts(
   };
 }
 
+// Calendar day (YYYY-MM-DD) of an instant in the given timezone. Used to fire
+// the daily heartbeat at most once per local day (§FR2).
+export function zonedDayKey(date: Date, timezone: string): string {
+  // en-CA formats as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 // PRD §FR4: poll only on active weekdays within [activeStartHour, activeEndHour).
 export function isActiveHours(now: Date, cfg: ScheduleConfig): boolean {
   const { weekday, hour, minute } = zonedParts(now, cfg.timezone);

@@ -47,13 +47,13 @@ export function buildAlertMessage(hit: Hit, chatId: string): TelegramMessage {
   };
 }
 
-// PRD §3.2/FR2: send the alert via the Telegram Bot API.
-export async function sendTelegramAlert(
+// Low-level Bot API sendMessage poster, shared by the HIT alert and the plain
+// liveness messages (heartbeat / degraded / /status reply).
+async function postMessage(
   config: TelegramConfig,
-  hit: Hit,
-  fetchImpl: typeof fetch = fetch,
+  message: object,
+  fetchImpl: typeof fetch,
 ): Promise<void> {
-  const message = buildAlertMessage(hit, config.chatId);
   const res = await fetchImpl(
     `https://api.telegram.org/bot${config.botToken}/sendMessage`,
     {
@@ -69,4 +69,62 @@ export async function sendTelegramAlert(
       `Telegram sendMessage failed: ${res.status} ${body.description ?? "unknown error"}`,
     );
   }
+}
+
+// PRD §3.2/FR2: send the HIT alert via the Telegram Bot API.
+export async function sendTelegramAlert(
+  config: TelegramConfig,
+  hit: Hit,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  await postMessage(config, buildAlertMessage(hit, config.chatId), fetchImpl);
+}
+
+// PRD §FR2/§8.2: send a plain HTML text message (heartbeat / degraded-state
+// alert / /status reply). No inline buttons; preview disabled like the alert.
+export async function sendTelegramMessage(
+  config: TelegramConfig,
+  text: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  await postMessage(
+    config,
+    {
+      chat_id: config.chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    },
+    fetchImpl,
+  );
+}
+
+// PRD §8.2 — a single Telegram update (only the fields the /status poller reads).
+export type TelegramUpdate = {
+  update_id: number;
+  message?: { text?: string; chat?: { id: number | string } };
+};
+
+// PRD §8.2 — poll getUpdates for pending commands. `offset` confirms previously
+// seen updates so they aren't re-delivered; timeout=0 keeps it non-blocking so
+// the poll cycle stays on schedule.
+export async function fetchUpdates(
+  config: TelegramConfig,
+  offset: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TelegramUpdate[]> {
+  const res = await fetchImpl(
+    `https://api.telegram.org/bot${config.botToken}/getUpdates?timeout=0&offset=${offset}`,
+  );
+  const body = (await res.json()) as {
+    ok?: boolean;
+    result?: TelegramUpdate[];
+    description?: string;
+  };
+  if (!res.ok || !body.ok) {
+    throw new Error(
+      `Telegram getUpdates failed: ${res.status} ${body.description ?? "unknown error"}`,
+    );
+  }
+  return body.result ?? [];
 }

@@ -28,6 +28,8 @@ const config: Config = {
   backoff: { baseSec: 30, factor: 2, capSec: 900 },
   state: { cooldownSec: 21600, captureDir: "captures" },
   minDateISO: "2026-06-27",
+  // Liveness off by default in these fixtures; individual tests opt in.
+  liveness: { heartbeatHour: -1, degradedThreshold: 1000, statusCommand: false },
 };
 
 const matrix: Target[] = [
@@ -411,6 +413,166 @@ test("a manual cookie override is sent on every request (§FR5)", async () => {
 
   assert.equal(cookieHeaders.length, 3);
   assert.ok(cookieHeaders.every((c) => c?.includes("JSESSIONID=manual123")));
+});
+
+// PRD §8.2 — the /status command replies with a status snapshot on demand.
+test("answers a /status command with last poll time and per-target results", async () => {
+  const sent: string[] = [];
+  let cycle = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("index.html")) return indexResp();
+    if (u.includes("primera/disponible"))
+      return jsonResp({ dias: [], dias_calendario: [] });
+    if (u.includes("getUpdates"))
+      return jsonResp({
+        ok: true,
+        result: [{ update_id: 5, message: { text: "/status" } }],
+      });
+    if (u.includes("sendMessage")) {
+      sent.push(JSON.parse(String(init?.body)).text);
+      return jsonResp({ ok: true });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow,
+    rng: () => 0.5,
+    buildMatrix: async () => matrix,
+    sleep: async (ms) => {
+      if (ms >= config.schedule.baseSec * 1000) cycle++;
+    },
+    shouldContinue: () => cycle < 1,
+  };
+
+  await runLoop(
+    { ...config, liveness: { heartbeatHour: -1, degradedThreshold: 1000, statusCommand: true } },
+    deps,
+  );
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /Estado del monitor/);
+  assert.match(sent[0], /no-slot/);
+});
+
+// PRD §FR2 — a daily heartbeat is sent once per day on a configurable schedule.
+test("sends one daily heartbeat once the heartbeat hour has passed", async () => {
+  const sent: string[] = [];
+  let cycle = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("index.html")) return indexResp();
+    if (u.includes("primera/disponible"))
+      return jsonResp({ dias: [], dias_calendario: [] });
+    if (u.includes("sendMessage")) {
+      sent.push(JSON.parse(String(init?.body)).text);
+      return jsonResp({ ok: true });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow, // 10:43 CEST — past a 09:00 heartbeat
+    rng: () => 0.5,
+    buildMatrix: async () => matrix,
+    sleep: async (ms) => {
+      if (ms >= config.schedule.baseSec * 1000) cycle++;
+    },
+    // Two cycles — the heartbeat must still fire only once for the day.
+    shouldContinue: () => cycle < 2,
+  };
+
+  await runLoop(
+    { ...config, liveness: { heartbeatHour: 9, degradedThreshold: 1000, statusCommand: false } },
+    deps,
+  );
+
+  const heartbeats = sent.filter((t) => /Monitor activo/.test(t));
+  assert.equal(heartbeats.length, 1);
+});
+
+// PRD §FR2 — degraded-state alert after N consecutive fully-failed cycles.
+test("fires a degraded-state alert after N consecutive failed cycles", async () => {
+  const sent: string[] = [];
+  let blocks = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("index.html")) return indexResp();
+    if (u.includes("primera/disponible"))
+      return new Response("<html>blocked</html>", {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      });
+    if (u.includes("sendMessage")) {
+      sent.push(JSON.parse(String(init?.body)).text);
+      return jsonResp({ ok: true });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow,
+    rng: () => 0.5,
+    log: (m) => {
+      if (/backing off/i.test(m)) blocks++;
+    },
+    buildMatrix: async () => matrix,
+    sleep: async () => {},
+    // Stop after the 3rd blocked cycle so the threshold (2) has tripped.
+    shouldContinue: () => blocks < 3,
+  };
+
+  await runLoop(
+    { ...config, liveness: { heartbeatHour: -1, degradedThreshold: 2, statusCommand: false } },
+    deps,
+  );
+
+  const degraded = sent.filter((t) => /degradado/i.test(t));
+  assert.equal(degraded.length, 1); // exactly once, not every blocked cycle
+});
+
+// Acceptance: heartbeat/degraded liveness traffic must not suppress HIT alerts.
+test("a HIT alert still fires while the heartbeat is also due", async () => {
+  const alerts: string[] = [];
+  let cycle = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("index.html")) return indexResp();
+    if (u.includes("primera/disponible"))
+      return u.includes("/centro/6/")
+        ? jsonResp({ dias: ["2026-06-27"], dias_calendario: [] })
+        : jsonResp({ dias: [], dias_calendario: [] });
+    if (u.includes("/calendario"))
+      return jsonResp({ periodos: [{ nombre_centro: "B" }] });
+    if (u.includes("sendMessage")) {
+      alerts.push(JSON.parse(String(init?.body)).text);
+      return jsonResp({ ok: true });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow,
+    rng: () => 0.5,
+    buildMatrix: async () => matrix,
+    sleep: async (ms) => {
+      if (ms >= config.schedule.baseSec * 1000) cycle++;
+    },
+    shouldContinue: () => cycle < 1,
+  };
+
+  await runLoop(
+    { ...config, liveness: { heartbeatHour: 9, degradedThreshold: 1000, statusCommand: false } },
+    deps,
+  );
+
+  assert.ok(alerts.some((t) => /SLOT/.test(t))); // HIT alert present
+  assert.ok(alerts.some((t) => /Monitor activo/.test(t))); // heartbeat present too
 });
 
 test("off-hours: sleeps until the window reopens instead of polling", async () => {

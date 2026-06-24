@@ -26,7 +26,8 @@ cp config.example.json config.json   # then edit config.json
 supplied via env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
 `TARGET_SERVICIO`, `TARGET_CENTRO`, `POLL_BASE_SEC`, `POLL_JITTER_SEC`,
 `POLL_TIMEZONE`, `BACKOFF_BASE_SEC`, `BACKOFF_FACTOR`, `BACKOFF_CAP_SEC`,
-`MANUAL_COOKIE`), which override the file.
+`MANUAL_COOKIE`, `HEARTBEAT_HOUR`, `DEGRADED_THRESHOLD`, `STATUS_COMMAND`),
+which override the file.
 
 `config.json` shape (see `config.example.json`):
 
@@ -95,6 +96,27 @@ keeps per-target state (in memory, and optionally mirrored to a JSON file):
   populated `dias` shape and the future booking POST contract.
 
 Relevant env overrides: `MIN_DATE_ISO`, `STATE_FILE`, `ALERT_COOLDOWN_SEC`.
+
+## Liveness (heartbeat, degraded alert, `/status`)
+
+Home-grown cita monitors usually die silently when cookies rotate. Three
+liveness signals make that visible (config block `liveness`):
+
+- **Daily heartbeat** — once per day, on or after `heartbeatHour` (local time of
+  the schedule timezone; default `9` → 09:00 Europe/Madrid), a "💓 Monitor
+  activo" message confirms the loop is alive and shows the last poll time and
+  per-target state. Set `heartbeatHour: -1` to disable.
+- **Degraded-state alert** — after `degradedThreshold` (default `3`) consecutive
+  **fully-failed** cycles (every target blocked / non-JSON / dead session), a
+  "⚠️ Monitor degradado" alert fires **once**; a single "✅ Monitor recuperado"
+  follows when a healthy cycle returns. It never re-alerts every blocked cycle.
+- **`/status` command** — when `statusCommand` is `true` (default), the loop
+  polls Telegram `getUpdates` each cycle and answers `/status` on demand with
+  the last poll time, per-target last result, and current backoff state. Works
+  even while the monitor is degraded.
+
+These messages are plain text and never interfere with HIT slot alerts.
+Env overrides: `HEARTBEAT_HOUR`, `DEGRADED_THRESHOLD`, `STATUS_COMMAND`.
 
 ## Autofill bookmarklet (one-time install)
 

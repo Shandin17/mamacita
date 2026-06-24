@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deepLink, buildAlertMessage, sendTelegramAlert } from "../src/telegram.ts";
+import {
+  deepLink,
+  buildAlertMessage,
+  sendTelegramAlert,
+  sendTelegramMessage,
+  fetchUpdates,
+} from "../src/telegram.ts";
 import type { Hit } from "../src/types.ts";
 
 const hit: Hit = {
@@ -83,5 +89,60 @@ test("sendTelegramAlert throws when Telegram returns ok:false", async () => {
   await assert.rejects(
     sendTelegramAlert({ botToken: "X", chatId: "CHAT" }, hit, fakeFetch),
     /bad token/,
+  );
+});
+
+test("sendTelegramMessage POSTs plain text with preview disabled and no buttons", async () => {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fakeFetch = (async (url: string | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+
+  await sendTelegramMessage({ botToken: "BOT123", chatId: "CHAT" }, "hola", fakeFetch);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.telegram.org/botBOT123/sendMessage");
+  const body = JSON.parse(String(calls[0].init.body));
+  assert.equal(body.chat_id, "CHAT");
+  assert.equal(body.text, "hola");
+  assert.equal(body.disable_web_page_preview, true);
+  assert.equal(body.reply_markup, undefined);
+});
+
+test("fetchUpdates passes the confirmation offset and returns the result array", async () => {
+  const calls: string[] = [];
+  const fakeFetch = (async (url: string | URL) => {
+    calls.push(String(url));
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        result: [{ update_id: 42, message: { text: "/status" } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as unknown as typeof fetch;
+
+  const updates = await fetchUpdates({ botToken: "BOT", chatId: "CHAT" }, 7, fakeFetch);
+
+  assert.match(calls[0], /getUpdates\?timeout=0&offset=7/);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].update_id, 42);
+  assert.equal(updates[0].message?.text, "/status");
+});
+
+test("fetchUpdates throws when Telegram returns ok:false", async () => {
+  const fakeFetch = (async () =>
+    new Response(JSON.stringify({ ok: false, description: "unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+
+  await assert.rejects(
+    fetchUpdates({ botToken: "X", chatId: "CHAT" }, 0, fakeFetch),
+    /unauthorized/,
   );
 });
