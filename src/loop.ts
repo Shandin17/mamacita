@@ -54,9 +54,7 @@ export async function runLoop(
   const refreshSession = async (reason: string): Promise<void> => {
     if (config.manualCookie) jar.setFromHeader(config.manualCookie);
     await bootstrapSession(jar, fetchImpl);
-    log(
-      `session ${reason} (cookies: ${jar.isEmpty() ? "none" : "ok"})`,
-    );
+    log(`session ${reason} (cookies: ${jar.isEmpty() ? "none" : "ok"})`);
   };
 
   if (config.manualCookie) log("manual cookie override loaded from config");
