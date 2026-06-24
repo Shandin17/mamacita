@@ -1,3 +1,4 @@
+import { Backoff } from "./backoff.ts";
 import { CookieJar } from "./cookies.ts";
 import { pollAndNotify, targetLabel } from "./run.ts";
 import {
@@ -46,13 +47,28 @@ export async function runLoop(
   const buildMatrix = deps.buildMatrix ?? buildTargetMatrix;
   const sched = config.schedule;
 
-  // Session bootstrap (§7/FR5) + full target matrix (§3.4 + §3.1), once.
+  // §FR5: seed any manual cookie override, then bootstrap. A re-bootstrap
+  // re-seeds the manual cookie too, so it survives cookie rotation as a
+  // fallback when the fresh GET returns no usable session.
   const jar = new CookieJar();
-  await bootstrapSession(jar, fetchImpl);
-  log(`session bootstrapped (cookies: ${jar.isEmpty() ? "none" : "ok"})`);
+  const refreshSession = async (reason: string): Promise<void> => {
+    if (config.manualCookie) jar.setFromHeader(config.manualCookie);
+    await bootstrapSession(jar, fetchImpl);
+    log(`session ${reason} (cookies: ${jar.isEmpty() ? "none" : "ok"})`);
+  };
+
+  if (config.manualCookie) log("manual cookie override loaded from config");
+  await refreshSession("bootstrapped");
 
   const targets = await buildMatrix(jar, fetchImpl, log);
   log(`target matrix built: ${targets.length} targets`);
+
+  // §FR4/§FR5: exponential backoff applied when a whole cycle is blocked.
+  const backoff = new Backoff({
+    baseMs: config.backoff.baseSec * 1000,
+    factor: config.backoff.factor,
+    capMs: config.backoff.capSec * 1000,
+  });
 
   while (shouldContinue()) {
     // Active-hours + weekday gating (§FR4): off-hours, sleep until it reopens.
@@ -64,12 +80,15 @@ export async function runLoop(
     }
 
     // Poll every target this cycle, staggered so they don't fire at once.
+    let polled = 0;
+    let failures = 0;
     for (let i = 0; i < targets.length; i++) {
       if (!shouldContinue()) break;
       if (i > 0) await sleep(computeStaggerMs(sched, rng));
 
       const target = targets[i];
       const label = targetLabel(target);
+      polled++;
       try {
         await pollAndNotify(target, config.telegram, jar, {
           fetchImpl,
@@ -78,11 +97,38 @@ export async function runLoop(
         });
       } catch (err) {
         // Survive a single target's failure and continue (§FR7/resilience).
+        failures++;
         log(`target ${label} failed: ${(err as Error).message}`);
       }
     }
 
     if (!shouldContinue()) break;
+
+    // §FR4/§FR5: every target failing means the session is dead or we're
+    // blocked — re-bootstrap and back off exponentially before resuming.
+    if (polled > 0 && failures === polled) {
+      const wait = backoff.next();
+      log(
+        `all ${polled} targets failed — session likely dead; backing off ${Math.round(
+          wait / 1000,
+        )}s and refreshing`,
+      );
+      try {
+        await refreshSession("re-bootstrapped");
+      } catch (err) {
+        log(
+          `re-bootstrap failed (will retry next cycle): ${(err as Error).message}`,
+        );
+      }
+      await sleep(wait);
+      continue;
+    }
+
+    // Healthy cycle — clear any prior backoff and resume the normal cadence.
+    if (backoff.isBackedOff) {
+      backoff.reset();
+      log("session recovered — backoff reset");
+    }
 
     // Inter-cycle jittered delay (§FR4): baseSec + uniform(0, jitterSec).
     const delay = computeCycleDelayMs(sched, rng);

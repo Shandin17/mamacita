@@ -73,6 +73,38 @@ test("schedule thresholds are configurable via file and env", () => {
   assert.equal(withEnv.schedule.timezone, "Atlantic/Canary");
 });
 
+test("backoff defaults are applied when absent (§FR4/§FR5)", () => {
+  const cfg = loadConfig(base, {});
+  assert.equal(cfg.backoff.baseSec, 30);
+  assert.equal(cfg.backoff.factor, 2);
+  assert.equal(cfg.backoff.capSec, 900);
+});
+
+test("backoff thresholds are configurable via file and env", () => {
+  const withFile = loadConfig({ ...base, backoff: { capSec: 600 } }, {});
+  assert.equal(withFile.backoff.capSec, 600);
+  assert.equal(withFile.backoff.baseSec, 30); // untouched default
+
+  const withEnv = loadConfig(base, {
+    BACKOFF_BASE_SEC: "10",
+    BACKOFF_FACTOR: "3",
+    BACKOFF_CAP_SEC: "1200",
+  });
+  assert.equal(withEnv.backoff.baseSec, 10);
+  assert.equal(withEnv.backoff.factor, 3);
+  assert.equal(withEnv.backoff.capSec, 1200);
+});
+
+test("manual cookie override is read from file and env (§FR5)", () => {
+  assert.equal(loadConfig(base, {}).manualCookie, undefined);
+
+  const withFile = loadConfig({ ...base, manualCookie: "JSESSIONID=file" }, {});
+  assert.equal(withFile.manualCookie, "JSESSIONID=file");
+
+  const withEnv = loadConfig(base, { MANUAL_COOKIE: "JSESSIONID=env" });
+  assert.equal(withEnv.manualCookie, "JSESSIONID=env");
+});
+
 test("throws on invalid target servicio", () => {
   assert.throws(() =>
     loadConfig({ ...base, target: { servicio: -1, centro: 5 } }, {}),

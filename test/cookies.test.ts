@@ -30,3 +30,16 @@ test("isEmpty reflects whether any cookie is stored", () => {
   jar.setFromResponse(["a=1"]);
   assert.equal(jar.isEmpty(), false);
 });
+
+test("setFromHeader seeds a manual browser-pasted Cookie header", () => {
+  const jar = new CookieJar();
+  jar.setFromHeader("JSESSIONID=manual123; TS01dc4fc6=anti; no-eq; =bad");
+  assert.equal(jar.header(), "JSESSIONID=manual123; TS01dc4fc6=anti");
+});
+
+test("a later set-cookie overrides a manually seeded cookie by name", () => {
+  const jar = new CookieJar();
+  jar.setFromHeader("JSESSIONID=manual123; TS01dc4fc6=anti");
+  jar.setFromResponse(["JSESSIONID=fresh; Path=/"]);
+  assert.equal(jar.header(), "JSESSIONID=fresh; TS01dc4fc6=anti");
+});

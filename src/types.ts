@@ -45,11 +45,22 @@ export type ScheduleConfig = {
   timezone: string; // IANA tz the active window is expressed in
 };
 
+// PRD §FR4/§FR5 — exponential backoff applied on errors/blocks before a
+// session refresh. All thresholds configurable.
+export type BackoffConfig = {
+  baseSec: number; // first delay after a block
+  factor: number; // multiplier per consecutive block (≈2)
+  capSec: number; // ceiling on the delay (~15 min)
+};
+
 export type Config = {
   target: Target;
   telegram: TelegramConfig;
   profile: CustomerProfile;
   schedule: ScheduleConfig;
+  backoff: BackoffConfig;
+  // §FR5 fallback: a known-good `Cookie` header pasted from the browser.
+  manualCookie?: string;
 };
 
 // PRD §3.1 — a center entry returned by the centers-for-service endpoint.
