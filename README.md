@@ -30,13 +30,13 @@ supplied via env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
 
 ```json
 {
-  "target":   { "servicio": 16, "centro": 5, "label": "Junta de Distrito Transits" },
+  "target": { "servicio": 16, "centro": 5, "label": "Junta de Distrito Transits" },
   "telegram": { "botToken": "", "chatId": "" },
   "profile": {
-    "nombre": "Valerii",
-    "apellidos": "Shandin",
+    "nombre": "",
+    "apellidos": "",
     "tipoDocumento": "NIF/NIE",
-    "documento": "Z4610343K",
+    "documento": "",
     "telefono": "600000000",
     "email": "you@example.com",
     "observaciones": "Alta en el padrón"
@@ -83,7 +83,7 @@ required) and prints two things:
 ### 2. Install the bookmarklet
 
 1. Show your browser's bookmarks bar.
-2. Create a new bookmark (right-click the bar → *Add page* / *New bookmark*).
+2. Create a new bookmark (right-click the bar → _Add page_ / _New bookmark_).
 3. Name it **Autofill** (or `Padrón autofill`).
 4. Paste the entire `javascript:…` line as the bookmark's **URL**.
 5. Save.
@@ -95,7 +95,7 @@ Re-run `npm run autofill` and reinstall whenever your profile changes.
 1. Open the booking form (use the **→ Abrir formulario** button in the alert).
 2. Wait for the form to fully load.
 3. Click the **Autofill** bookmark — the seven fields fill in.
-4. **Solve the captcha and press *Acceptar* yourself.**
+4. **Solve the captcha and press _Acceptar_ yourself.**
 
 > Prefer not to install a bookmark? Open DevTools → Console, paste the readable
 > snippet from `npm run autofill`, and press Enter — it does the same thing.
