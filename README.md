@@ -24,7 +24,9 @@ cp config.example.json config.json   # then edit config.json
 
 `config.json` is gitignored — keep your real values there. Secrets can also be
 supplied via env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
-`TARGET_SERVICIO`, `TARGET_CENTRO`), which override the file.
+`TARGET_SERVICIO`, `TARGET_CENTRO`, `POLL_BASE_SEC`, `POLL_JITTER_SEC`,
+`POLL_TIMEZONE`, `BACKOFF_BASE_SEC`, `BACKOFF_FACTOR`, `BACKOFF_CAP_SEC`,
+`MANUAL_COOKIE`), which override the file.
 
 `config.json` shape (see `config.example.json`):
 
@@ -32,6 +34,8 @@ supplied via env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
 {
   "target":   { "servicio": 16, "centro": 5, "label": "Junta de Distrito Transits" },
   "telegram": { "botToken": "", "chatId": "" },
+  "backoff":  { "baseSec": 30, "factor": 2, "capSec": 900 },
+  "manualCookie": "",
   "profile": {
     "nombre": "Valerii",
     "apellidos": "Shandin",
@@ -43,6 +47,22 @@ supplied via env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
   }
 }
 ```
+
+### Session resilience (F5 anti-bot)
+
+The monitor keeps an in-memory **cookie jar**: it parses `set-cookie`
+(`JSESSIONID` + the F5 `TS*` cookies) from every response and resends them on
+each request. When a JSON endpoint answers with HTML, a non-JSON content type,
+a `403`, or unparseable JSON, the session is treated as **dead** — when a whole
+cycle is blocked the loop re-bootstraps (re-`GET`s the SPA index) and applies
+**exponential backoff** (`baseSec` → ×`factor`, capped at `capSec` ≈ 15 min)
+before resuming. A healthy cycle resets the backoff. All of this is logged.
+
+**Manual cookie fallback:** F5 cookies live only a few hours. If automatic
+bootstrap ever stops working, open the booking page in a browser, copy the
+`Cookie` request header from DevTools (Network tab), and paste it into
+`manualCookie` (or the `MANUAL_COOKIE` env var). It's seeded into the jar on
+startup and after every re-bootstrap, so it survives rotation as a fallback.
 
 ## Running the monitor
 

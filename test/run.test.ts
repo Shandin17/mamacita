@@ -24,6 +24,7 @@ const config: Config = {
     activeDays: [1, 2, 3, 4, 5],
     timezone: "Europe/Madrid",
   },
+  backoff: { baseSec: 30, factor: 2, capSec: 900 },
 };
 
 const indexResp = () =>

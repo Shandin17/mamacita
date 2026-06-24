@@ -1,6 +1,16 @@
 import { CookieJar } from "./cookies.ts";
 import type { CenterInfo, FirstAvailableResponse, Target } from "./types.ts";
 
+// Raised when a JSON endpoint returns HTML / a non-JSON content-type / a 403
+// challenge / unparseable JSON — the F5 anti-bot session has rotated or we've
+// been blocked (§7/FR5). The loop treats this as the signal to re-bootstrap.
+export class SessionDeadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionDeadError";
+  }
+}
+
 // PRD §3 / §7 — QSIGE backend + SPA session bootstrap.
 const API_BASE = "https://www.valencia.es/qsige.localizador";
 export const INDEX_URL =
@@ -46,13 +56,21 @@ async function getJson(
   jar.setFromResponse(readSetCookies(res));
 
   const contentType = res.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    // HTML / 403 challenge page => session is dead (§7/FR5).
-    throw new Error(
+  if (res.status === 403 || !contentType.includes("application/json")) {
+    // HTML / non-JSON / 403 challenge page => session is dead/blocked (§7/FR5).
+    throw new SessionDeadError(
       `session dead: expected JSON from ${url} but got "${contentType}" (status ${res.status})`,
     );
   }
-  return res.json();
+  try {
+    return await res.json();
+  } catch (err) {
+    // A JSON content-type with an unparseable body is also a dead/challenge
+    // response in practice (§7) — surface it the same way so the loop refreshes.
+    throw new SessionDeadError(
+      `session dead: malformed JSON from ${url} (status ${res.status}): ${(err as Error).message}`,
+    );
+  }
 }
 
 // PRD §3.2 — first-available endpoint, the primary availability signal.

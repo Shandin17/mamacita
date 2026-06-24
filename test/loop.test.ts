@@ -24,6 +24,7 @@ const config: Config = {
     activeDays: [1, 2, 3, 4, 5],
     timezone: "Europe/Madrid",
   },
+  backoff: { baseSec: 30, factor: 2, capSec: 900 },
 };
 
 const matrix: Target[] = [
@@ -153,6 +154,135 @@ test("a single target's failure does not kill the loop", async () => {
   const polls = calls.filter((u) => u.includes("primera/disponible"));
   assert.equal(polls.length, 3);
   assert.ok(logs.some((l) => /target B failed/i.test(l)));
+});
+
+test("a fully-failed cycle re-bootstraps the session and backs off exponentially", async () => {
+  const calls: string[] = [];
+  const sleeps: number[] = [];
+  const logs: string[] = [];
+  let blocks = 0;
+  const fetchImpl = (async (url: string | URL) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.includes("index.html")) return indexResp();
+    if (u.includes("primera/disponible"))
+      // Every target is blocked → SessionDeadError on each.
+      return new Response("<html>blocked</html>", {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      });
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow,
+    rng: () => 0.5,
+    log: (m) => {
+      logs.push(m);
+      if (/backing off/i.test(m)) blocks++;
+    },
+    buildMatrix: async () => matrix,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+    // Stop after the second block so we observe the exponential step.
+    shouldContinue: () => blocks < 2,
+  };
+
+  await runLoop(config, deps);
+
+  // Initial bootstrap + one re-bootstrap per blocked cycle.
+  const indexGets = calls.filter((u) => u.includes("index.html"));
+  assert.equal(indexGets.length, 3); // initial + 2 re-bootstraps
+  // Backoff sleeps were applied and doubled: 30s then 60s.
+  assert.ok(sleeps.includes(30_000));
+  assert.ok(sleeps.includes(60_000));
+  // No normal inter-cycle jittered delay (210s) — every cycle was blocked.
+  assert.ok(!sleeps.includes(210_000));
+  assert.ok(logs.some((l) => /re-bootstrap/i.test(l)));
+});
+
+test("backoff resets after the session recovers", async () => {
+  const sleeps: number[] = [];
+  const logs: string[] = [];
+  let indexGets = 0;
+  let recovered = false;
+  const fetchImpl = (async (url: string | URL) => {
+    const u = String(url);
+    if (u.includes("index.html")) {
+      indexGets++;
+      return indexResp();
+    }
+    if (u.includes("primera/disponible")) {
+      // Blocked until the session has been re-bootstrapped once.
+      if (indexGets < 2)
+        return new Response("<html></html>", {
+          status: 403,
+          headers: { "content-type": "text/html" },
+        });
+      return jsonResp({ dias: [], dias_calendario: [] });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow,
+    rng: () => 0.5,
+    log: (m) => {
+      logs.push(m);
+      if (/cycle complete/i.test(m)) recovered = true;
+    },
+    buildMatrix: async () => matrix,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+    // Stop once a healthy cycle has completed.
+    shouldContinue: () => !recovered,
+  };
+
+  await runLoop(config, deps);
+
+  assert.ok(sleeps.includes(30_000)); // backoff on the blocked cycle
+  assert.ok(sleeps.includes(210_000)); // normal jittered delay once recovered
+  assert.ok(logs.some((l) => /backoff reset/i.test(l)));
+});
+
+test("a manual cookie override is sent on every request (§FR5)", async () => {
+  const cookieHeaders: (string | null)[] = [];
+  let cycle = 0;
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    // Bootstrap returns no set-cookie, so only the manual override is present.
+    if (u.includes("index.html"))
+      return new Response("<html></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    if (u.includes("primera/disponible")) {
+      cookieHeaders.push(new Headers(init?.headers).get("cookie"));
+      return jsonResp({ dias: [], dias_calendario: [] });
+    }
+    throw new Error(`unexpected url ${u}`);
+  }) as unknown as typeof fetch;
+
+  const deps: LoopDeps = {
+    fetchImpl,
+    now: activeNow,
+    rng: () => 0.5,
+    log: (m) => {
+      if (/cycle complete/i.test(m)) cycle++;
+    },
+    buildMatrix: async () => matrix,
+    sleep: async () => {},
+    shouldContinue: () => cycle < 1,
+  };
+
+  await runLoop({ ...config, manualCookie: "JSESSIONID=manual123" }, deps);
+
+  assert.equal(cookieHeaders.length, 3);
+  assert.ok(cookieHeaders.every((c) => c?.includes("JSESSIONID=manual123")));
 });
 
 test("off-hours: sleeps until the window reopens instead of polling", async () => {

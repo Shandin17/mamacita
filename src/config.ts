@@ -42,11 +42,24 @@ const scheduleSchema = z
   // field's own default fills in (a plain .default() wants the output type).
   .prefault({});
 
+// PRD §FR4/§FR5 — exponential backoff with a cap (~15 min) on blocks.
+const backoffSchema = z
+  .object({
+    baseSec: z.number().positive().default(30),
+    factor: z.number().min(1).default(2),
+    capSec: z.number().positive().default(900),
+  })
+  .prefault({});
+
 const configSchema = z.object({
   target: targetSchema,
   telegram: telegramSchema,
   profile: profileSchema,
   schedule: scheduleSchema,
+  backoff: backoffSchema,
+  // §FR5 fallback. Empty string = not set (the loop uses a truthy check), so
+  // the example config can ship a blank placeholder.
+  manualCookie: z.string().optional(),
 });
 
 type Env = Record<string, string | undefined>;
@@ -73,6 +86,10 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     string,
     unknown
   >;
+  const backoff = { ...((base.backoff as object) ?? {}) } as Record<
+    string,
+    unknown
+  >;
 
   if (env.TARGET_SERVICIO !== undefined)
     target.servicio = Number(env.TARGET_SERVICIO);
@@ -90,7 +107,17 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     schedule.jitterSec = Number(env.POLL_JITTER_SEC);
   if (env.POLL_TIMEZONE !== undefined) schedule.timezone = env.POLL_TIMEZONE;
 
-  return { ...base, target, telegram, schedule };
+  // §FR4/§FR5 backoff + manual cookie overrides.
+  if (env.BACKOFF_BASE_SEC !== undefined)
+    backoff.baseSec = Number(env.BACKOFF_BASE_SEC);
+  if (env.BACKOFF_FACTOR !== undefined)
+    backoff.factor = Number(env.BACKOFF_FACTOR);
+  if (env.BACKOFF_CAP_SEC !== undefined)
+    backoff.capSec = Number(env.BACKOFF_CAP_SEC);
+
+  const out: Record<string, unknown> = { ...base, target, telegram, schedule, backoff };
+  if (env.MANUAL_COOKIE !== undefined) out.manualCookie = env.MANUAL_COOKIE;
+  return out;
 }
 
 export function loadConfig(raw: unknown, env: Env = process.env): Config {

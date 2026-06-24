@@ -6,6 +6,7 @@ import {
   pollFirstAvailable,
   enrichNames,
   listCenters,
+  SessionDeadError,
   INDEX_URL,
 } from "../src/session.ts";
 
@@ -60,14 +61,43 @@ test("poll reuses cookies from the jar and hits the §3.2 endpoint", async () =>
   assert.deepEqual(payload.dias, []);
 });
 
-test("poll throws a session-dead error when JSON endpoint returns HTML", async () => {
+test("poll throws a SessionDeadError when JSON endpoint returns HTML", async () => {
   const jar = new CookieJar();
   jar.setFromResponse(["JSESSIONID=sess1; Path=/"]);
   const fakeFetch = (async () => htmlResponse()) as unknown as typeof fetch;
 
   await assert.rejects(
     pollFirstAvailable({ servicio: 16, centro: 5 }, jar, fakeFetch),
-    /session/i,
+    (err: unknown) =>
+      err instanceof SessionDeadError && /session/i.test((err as Error).message),
+  );
+});
+
+test("poll throws a SessionDeadError on a 403 block even with JSON headers", async () => {
+  const jar = new CookieJar();
+  const fakeFetch = (async () =>
+    new Response('{"blocked":true}', {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+
+  await assert.rejects(
+    pollFirstAvailable({ servicio: 16, centro: 5 }, jar, fakeFetch),
+    (err: unknown) => err instanceof SessionDeadError,
+  );
+});
+
+test("poll throws a SessionDeadError on malformed JSON", async () => {
+  const jar = new CookieJar();
+  const fakeFetch = (async () =>
+    new Response("{not json", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+
+  await assert.rejects(
+    pollFirstAvailable({ servicio: 16, centro: 5 }, jar, fakeFetch),
+    (err: unknown) => err instanceof SessionDeadError,
   );
 });
 
