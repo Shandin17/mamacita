@@ -4,6 +4,7 @@ import {
   bootstrapSession,
   pollFirstAvailable,
   enrichNames,
+  type EnrichedNames,
 } from "./session.ts";
 import { sendTelegramAlert } from "./telegram.ts";
 import type { Config, Hit } from "./types.ts";
@@ -44,9 +45,7 @@ export async function runOnce(
 
   // 4. HIT — enrich names (§3.3) and notify (§6/FR2).
   const detectedAt = now().toISOString();
-  let enriched = { servicioName: undefined, centroName: undefined, idPeriodo: undefined } as Awaited<
-    ReturnType<typeof enrichNames>
-  >;
+  let enriched: EnrichedNames = {};
   try {
     enriched = await enrichNames(target, jar, fetchImpl);
   } catch (err) {
