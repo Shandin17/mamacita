@@ -27,6 +27,13 @@ test("alert message body includes service, center and timestamp", () => {
   assert.match(msg.text, /2026-06-24T10:43:07.000Z/);
 });
 
+test("alert message includes the manual-flow autofill reminder", () => {
+  const msg = buildAlertMessage(hit, "CHAT");
+  assert.match(msg.text, /bookmarklet/i);
+  assert.match(msg.text, /captcha/i);
+  assert.match(msg.text, /Acceptar/i);
+});
+
 test("alert sets disable_web_page_preview and an inline URL button", () => {
   const msg = buildAlertMessage(hit, "CHAT");
   assert.equal(msg.disable_web_page_preview, true);
