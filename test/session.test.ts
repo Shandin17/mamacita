@@ -5,6 +5,7 @@ import {
   bootstrapSession,
   pollFirstAvailable,
   enrichNames,
+  listCenters,
   INDEX_URL,
 } from "../src/session.ts";
 
@@ -90,4 +91,27 @@ test("enrichNames pulls service/center names and id_periodo from §3.3", async (
   assert.equal(info.servicioName, "PADRON CP - Arzobispo Mayoral");
   assert.equal(info.centroName, "GESTIÓN TRIBUTARIA INTEGRAL");
   assert.equal(info.idPeriodo, 6);
+});
+
+test("listCenters hits §3.1 and flattens centros across groups", async () => {
+  const jar = new CookieJar();
+  const seen: string[] = [];
+  const fakeFetch = (async (url: string | URL) => {
+    seen.push(String(url));
+    return jsonResponse([
+      { centros: [{ id_centro: 10, nombre: "GTI", direccion: "VALENCIA" }] },
+      { centros: [{ id_centro: 33 }, { nombre: "no id — dropped" }] },
+    ]);
+  }) as unknown as typeof fetch;
+
+  const centers = await listCenters(33, jar, fakeFetch);
+
+  assert.equal(
+    seen[0],
+    "https://www.valencia.es/qsige.localizador/citaPrevia/centros/servicio/disponible/33",
+  );
+  assert.deepEqual(
+    centers.map((c) => c.id_centro),
+    [10, 33],
+  );
 });

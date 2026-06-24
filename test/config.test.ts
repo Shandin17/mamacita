@@ -48,6 +48,31 @@ test("env can supply credentials missing from the file (no secrets in code)", ()
   assert.equal(cfg.telegram.chatId, "ENV_CHAT");
 });
 
+test("schedule defaults are applied when absent (§FR4)", () => {
+  const cfg = loadConfig(base, {});
+  assert.equal(cfg.schedule.baseSec, 180);
+  assert.equal(cfg.schedule.jitterSec, 60);
+  assert.equal(cfg.schedule.activeStartHour, 7);
+  assert.equal(cfg.schedule.activeEndHour, 15);
+  assert.deepEqual(cfg.schedule.activeDays, [1, 2, 3, 4, 5]);
+  assert.equal(cfg.schedule.timezone, "Europe/Madrid");
+});
+
+test("schedule thresholds are configurable via file and env", () => {
+  const withFile = loadConfig({ ...base, schedule: { baseSec: 300 } }, {});
+  assert.equal(withFile.schedule.baseSec, 300);
+  assert.equal(withFile.schedule.jitterSec, 60); // untouched default
+
+  const withEnv = loadConfig(base, {
+    POLL_BASE_SEC: "120",
+    POLL_JITTER_SEC: "30",
+    POLL_TIMEZONE: "Atlantic/Canary",
+  });
+  assert.equal(withEnv.schedule.baseSec, 120);
+  assert.equal(withEnv.schedule.jitterSec, 30);
+  assert.equal(withEnv.schedule.timezone, "Atlantic/Canary");
+});
+
 test("throws on invalid target servicio", () => {
   assert.throws(() =>
     loadConfig({ ...base, target: { servicio: -1, centro: 5 } }, {}),

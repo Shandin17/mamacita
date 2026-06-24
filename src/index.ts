@@ -1,13 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadConfig } from "./config.ts";
-import { runOnce } from "./run.ts";
+import { runLoop } from "./loop.ts";
 
-// PRD §2 tracer bullet entry point: load config, run a single pass, exit cleanly.
+// PRD §FR1/§FR4 production entry point: load config, then run the continuous
+// jittered, time-gated polling loop over the full §3.4 target matrix.
 async function main(): Promise<void> {
-  const configPath = resolve(
-    process.env.CONFIG_PATH ?? "config.json",
-  );
+  const configPath = resolve(process.env.CONFIG_PATH ?? "config.json");
 
   let raw: unknown = {};
   try {
@@ -19,11 +18,18 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig(raw, process.env);
-  const log = (m: string) =>
-    console.log(`[${new Date().toISOString()}] ${m}`);
+  const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
 
-  const result = await runOnce(config, { log });
-  log(`single pass complete (hit=${result.hit})`);
+  // Graceful SIGINT (§7): stop after the in-flight cycle work.
+  let running = true;
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => {
+      if (running) log(`received ${sig} — shutting down after current step`);
+      running = false;
+    });
+  }
+
+  await runLoop(config, { log, shouldContinue: () => running });
 }
 
 main()
