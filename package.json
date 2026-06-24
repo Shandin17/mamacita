@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "node src/index.ts",
+    "autofill": "node src/generate-autofill.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
     "sandcastle": "npx tsx .sandcastle/main.mts"

@@ -28,6 +28,10 @@ export function buildAlertMessage(hit: Hit, chatId: string): TelegramMessage {
     ...(hit.direccion ? [`Dirección: ${hit.direccion}`] : []),
     `Fecha: ${fecha}`,
     `Detectado: ${hit.detectedAt}`,
+    "",
+    // PRD §6/FR3: remind the human of the manual flow — autofill bookmarklet,
+    // then solve captcha and press Acceptar by hand (never automated).
+    'Recordatorio: abre el formulario, pulsa el bookmarklet "Autofill", resuelve el captcha y pulsa Acceptar.',
   ];
 
   return {

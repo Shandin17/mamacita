@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Config } from "./types.ts";
+import type { Config, CustomerProfile } from "./types.ts";
 
 // PRD §7/FR7: config via object (config.json) + env overrides, no secrets in code.
 
@@ -51,11 +51,16 @@ const configSchema = z.object({
 
 type Env = Record<string, string | undefined>;
 
-function applyEnvOverrides(raw: unknown, env: Env): unknown {
-  const base = (typeof raw === "object" && raw !== null ? raw : {}) as Record<
+// Coerce arbitrary parsed JSON into a plain object we can read keys from.
+function asRecord(raw: unknown): Record<string, unknown> {
+  return (typeof raw === "object" && raw !== null ? raw : {}) as Record<
     string,
     unknown
   >;
+}
+
+function applyEnvOverrides(raw: unknown, env: Env): unknown {
+  const base = asRecord(raw);
   const target = { ...((base.target as object) ?? {}) } as Record<
     string,
     unknown
@@ -91,4 +96,10 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
 export function loadConfig(raw: unknown, env: Env = process.env): Config {
   const merged = applyEnvOverrides(raw, env);
   return configSchema.parse(merged);
+}
+
+// Validate just the CustomerProfile (§5). The autofill generator (FR3) needs
+// the profile only — it must not require Telegram credentials to run.
+export function loadProfile(raw: unknown): CustomerProfile {
+  return profileSchema.parse(asRecord(raw).profile);
 }
