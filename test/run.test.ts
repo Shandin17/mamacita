@@ -24,6 +24,8 @@ const config: Config = {
     activeDays: [1, 2, 3, 4, 5],
     timezone: "Europe/Madrid",
   },
+  state: { cooldownSec: 21600, captureDir: "captures" },
+  minDateISO: "2026-06-27",
 };
 
 const indexResp = () =>

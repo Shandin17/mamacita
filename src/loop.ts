@@ -1,5 +1,11 @@
+import { captureToDir } from "./capture.ts";
 import { CookieJar } from "./cookies.ts";
-import { pollAndNotify, targetLabel } from "./run.ts";
+import {
+  pollAndNotify,
+  targetLabel,
+  type CaptureFn,
+  type PollPolicy,
+} from "./run.ts";
 import {
   computeCycleDelayMs,
   computeStaggerMs,
@@ -7,6 +13,7 @@ import {
   msUntilNextActiveWindow,
 } from "./schedule.ts";
 import { bootstrapSession } from "./session.ts";
+import { MonitorState } from "./state.ts";
 import { buildTargetMatrix } from "./targets.ts";
 import type { Config, Target } from "./types.ts";
 
@@ -24,6 +31,10 @@ export type LoopDeps = {
     fetchImpl: typeof fetch,
     log: (m: string) => void,
   ) => Promise<Target[]>;
+  // §FR6 de-dup state (defaults to config.state.file, in-memory if unset).
+  state?: MonitorState;
+  // §8.4 capture-on-hit sink (defaults to a disk dump under captureDir).
+  capture?: CaptureFn;
 };
 
 const realSleep = (ms: number): Promise<void> =>
@@ -45,6 +56,19 @@ export async function runLoop(
   const shouldContinue = deps.shouldContinue ?? (() => true);
   const buildMatrix = deps.buildMatrix ?? buildTargetMatrix;
   const sched = config.schedule;
+
+  // §FR6 de-dup state (persisted to disk when configured) + §8.4 capture sink.
+  const state = deps.state ?? new MonitorState(config.state.file).load();
+  const capture: CaptureFn =
+    deps.capture ??
+    ((target, firstAvailable, calendar, when) =>
+      captureToDir(config.state.captureDir, target, firstAvailable, calendar, when));
+  const policy: PollPolicy = {
+    state,
+    minDateISO: config.minDateISO,
+    cooldownMs: config.state.cooldownSec * 1000,
+    capture,
+  };
 
   // Session bootstrap (§7/FR5) + full target matrix (§3.4 + §3.1), once.
   const jar = new CookieJar();
@@ -71,11 +95,13 @@ export async function runLoop(
       const target = targets[i];
       const label = targetLabel(target);
       try {
-        await pollAndNotify(target, config.telegram, jar, {
-          fetchImpl,
-          now,
-          log,
-        });
+        await pollAndNotify(
+          target,
+          config.telegram,
+          jar,
+          { fetchImpl, now, log },
+          policy,
+        );
       } catch (err) {
         // Survive a single target's failure and continue (§FR7/resilience).
         log(`target ${label} failed: ${(err as Error).message}`);

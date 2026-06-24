@@ -56,6 +56,26 @@ straight to the Angular booking form. The message also reminds you of the
 manual flow: open the form, click your **Autofill** bookmarklet, solve the
 captcha, and press **Acceptar**.
 
+## State, de-dup & date filtering
+
+To avoid alert storms when a slot lingers across many poll cycles, the monitor
+keeps per-target state (in memory, and optionally mirrored to a JSON file):
+
+- A slot is alerted **once per distinct signature** (its eligible dates, or a
+  hash of the raw payload when the structure is opaque).
+- It only **re-alerts** after the `state.cooldownSec` cooldown elapses, or if
+  the slot disappears and later reappears.
+- Set `state.file` (e.g. `state.json`) so de-dup **survives a restart**; leave
+  it unset to keep state in memory only.
+- `minDateISO` (default `2026-06-27`) drops bookable dates earlier than the
+  floor **when the structure exposes parseable dates**; an opaque structure
+  still alerts and lets you judge.
+- On the **first real HIT**, the raw §3.2 + §3.3 payloads are dumped under
+  `state.captureDir` (default `captures/`) — the only way to learn the
+  populated `dias` shape and the future booking POST contract.
+
+Relevant env overrides: `MIN_DATE_ISO`, `STATE_FILE`, `ALERT_COOLDOWN_SEC`.
+
 ## Autofill bookmarklet (one-time install)
 
 Because the booking form is an Angular SPA, fields cannot be prefilled via the

@@ -42,11 +42,27 @@ const scheduleSchema = z
   // field's own default fills in (a plain .default() wants the output type).
   .prefault({});
 
+// PRD §FR6/§FR7 — de-dup state persistence + capture-on-hit. cooldown defaults
+// to 6h so a slot that lingers all morning re-alerts at most a few times.
+const stateSchema = z
+  .object({
+    file: z.string().optional(),
+    cooldownSec: z.number().nonnegative().default(6 * 3600),
+    captureDir: z.string().default("captures"),
+  })
+  .prefault({});
+
 const configSchema = z.object({
   target: targetSchema,
   telegram: telegramSchema,
   profile: profileSchema,
   schedule: scheduleSchema,
+  state: stateSchema,
+  // §FR1 — drop bookable dates earlier than this; default per PRD.
+  minDateISO: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "minDateISO must be YYYY-MM-DD")
+    .default("2026-06-27"),
 });
 
 type Env = Record<string, string | undefined>;
@@ -73,6 +89,10 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     string,
     unknown
   >;
+  const state = { ...((base.state as object) ?? {}) } as Record<
+    string,
+    unknown
+  >;
 
   if (env.TARGET_SERVICIO !== undefined)
     target.servicio = Number(env.TARGET_SERVICIO);
@@ -90,7 +110,14 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     schedule.jitterSec = Number(env.POLL_JITTER_SEC);
   if (env.POLL_TIMEZONE !== undefined) schedule.timezone = env.POLL_TIMEZONE;
 
-  return { ...base, target, telegram, schedule };
+  // §FR6/§FR1 state + date-filter overrides.
+  if (env.STATE_FILE !== undefined) state.file = env.STATE_FILE;
+  if (env.ALERT_COOLDOWN_SEC !== undefined)
+    state.cooldownSec = Number(env.ALERT_COOLDOWN_SEC);
+  const minDateISO =
+    env.MIN_DATE_ISO !== undefined ? env.MIN_DATE_ISO : base.minDateISO;
+
+  return { ...base, target, telegram, schedule, state, minDateISO };
 }
 
 export function loadConfig(raw: unknown, env: Env = process.env): Config {

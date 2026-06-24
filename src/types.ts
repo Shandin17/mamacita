@@ -45,11 +45,20 @@ export type ScheduleConfig = {
   timezone: string; // IANA tz the active window is expressed in
 };
 
+// PRD §FR6/§FR7 — de-dup / state persistence + capture-on-hit settings.
+export type StateConfig = {
+  file?: string; // optional JSON file mirroring the in-memory state
+  cooldownSec: number; // re-alert cooldown for a lingering, unchanged slot
+  captureDir: string; // where the first-HIT raw payload dump is written
+};
+
 export type Config = {
   target: Target;
   telegram: TelegramConfig;
   profile: CustomerProfile;
   schedule: ScheduleConfig;
+  state: StateConfig;
+  minDateISO: string; // §FR1 — drop bookable dates earlier than this
 };
 
 // PRD §3.1 — a center entry returned by the centers-for-service endpoint.
