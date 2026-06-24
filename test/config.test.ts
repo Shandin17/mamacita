@@ -6,12 +6,12 @@ const base = {
   services: [16, 99],
   telegram: { botToken: "FILE_TOKEN", chatId: "FILE_CHAT" },
   profile: {
-    nombre: "Valerii",
-    apellidos: "Shandin",
+    nombre: "Test",
+    apellidos: "User",
     tipoDocumento: "NIF/NIE",
-    documento: "Z4610343K",
+    documento: "X0000000T",
     telefono: "600000000",
-    email: "valerii@example.com",
+    email: "test@example.com",
   },
 };
 
@@ -19,7 +19,7 @@ test("loads a valid config object unchanged", () => {
   const cfg = loadConfig(base, {});
   assert.deepEqual(cfg.services, [16, 99]);
   assert.equal(cfg.telegram.botToken, "FILE_TOKEN");
-  assert.equal(cfg.profile.nombre, "Valerii");
+  assert.equal(cfg.profile.nombre, "Test");
 });
 
 test("services default to [16, 99] when absent (§FR1)", () => {

@@ -10,13 +10,14 @@ import {
 } from "../src/autofill.ts";
 import type { CustomerProfile } from "../src/types.ts";
 
+// Synthetic test data only — real personal data lives in gitignored local config/env (PRD FR7).
 const profile: CustomerProfile = {
-  nombre: "Valerii",
-  apellidos: "Shandin",
+  nombre: "Test",
+  apellidos: "User",
   tipoDocumento: "NIF/NIE",
-  documento: "Z4610343K",
+  documento: "X0000000T", // dummy NIE placeholder, not a real document number
   telefono: "600000000",
-  email: "valerii@example.com",
+  email: "test@example.com",
   observaciones: "Alta en el padrón",
 };
 
@@ -164,9 +165,9 @@ test("FIELD_LABELS covers all seven form fields", () => {
 
 test("buildAutofillSnippet embeds profile values and field labels", () => {
   const snippet = buildAutofillSnippet(profile);
-  assert.match(snippet, /Valerii/);
-  assert.match(snippet, /Z4610343K/);
-  assert.match(snippet, /valerii@example\.com/);
+  assert.match(snippet, /Test/);
+  assert.match(snippet, /X0000000T/);
+  assert.match(snippet, /test@example\.com/);
   assert.match(snippet, /Nom/);
   assert.match(snippet, /Cognoms/);
   assert.match(snippet, /Observacions/);
@@ -179,7 +180,7 @@ test("buildBookmarklet produces a single-line javascript: URL", () => {
   assert.ok(!bm.includes("\n"), "must be a single line");
   const decoded = decodeURIComponent(bm.slice("javascript:".length));
   assert.match(decoded, /fillValenciaForm/);
-  assert.match(decoded, /Z4610343K/);
+  assert.match(decoded, /X0000000T/);
 });
 
 test("runtime never interacts with the captcha or the Acceptar button", () => {
@@ -197,11 +198,11 @@ test("fillValenciaForm fills all seven fields with input/change events", () => {
   const result = fillValenciaForm(cfg, doc);
 
   assert.deepEqual(result.missing, []);
-  assert.equal(fields.nombre.value, "Valerii");
-  assert.equal(fields.apellidos.value, "Shandin");
-  assert.equal(fields.documento.value, "Z4610343K");
+  assert.equal(fields.nombre.value, "Test");
+  assert.equal(fields.apellidos.value, "User");
+  assert.equal(fields.documento.value, "X0000000T");
   assert.equal(fields.telefono.value, "600000000");
-  assert.equal(fields.email.value, "valerii@example.com");
+  assert.equal(fields.email.value, "test@example.com");
   assert.equal(fields.observaciones.value, "Alta en el padrón");
 
   for (const el of [
