@@ -1,0 +1,28 @@
+{
+  "name": "mamacita",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "sandcastle": "npx tsx .sandcastle/main.mts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shandin17/mamacita.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Shandin17/mamacita/issues"
+  },
+  "homepage": "https://github.com/Shandin17/mamacita#readme",
+  "devDependencies": {
+    "@ai-hero/sandcastle": "^0.10.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}
