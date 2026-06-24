@@ -7,12 +7,12 @@ const config: Config = {
   target: { servicio: 16, centro: 5, label: "Transits" },
   telegram: { botToken: "BOT", chatId: "CHAT" },
   profile: {
-    nombre: "Valerii",
-    apellidos: "Shandin",
+    nombre: "Test",
+    apellidos: "User",
     tipoDocumento: "NIF/NIE",
-    documento: "Z4610343K",
+    documento: "X0000000T",
     telefono: "600000000",
-    email: "valerii@example.com",
+    email: "test@example.com",
   },
   schedule: {
     baseSec: 180,
