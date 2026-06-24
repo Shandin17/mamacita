@@ -17,6 +17,12 @@
     "capSec": 900
   },
   "manualCookie": "",
+  "minDateISO": "2026-06-27",
+  "state": {
+    "file": "state.json",
+    "cooldownSec": 21600,
+    "captureDir": "captures"
+  },
   "profile": {
     "nombre": "",
     "apellidos": "",

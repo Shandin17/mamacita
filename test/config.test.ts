@@ -105,6 +105,32 @@ test("manual cookie override is read from file and env (§FR5)", () => {
   assert.equal(withEnv.manualCookie, "JSESSIONID=env");
 });
 
+test("state + minDateISO defaults are applied when absent (§FR6/§FR1)", () => {
+  const cfg = loadConfig(base, {});
+  assert.equal(cfg.minDateISO, "2026-06-27");
+  assert.equal(cfg.state.file, undefined);
+  assert.equal(cfg.state.captureDir, "captures");
+  assert.ok(cfg.state.cooldownSec > 0);
+});
+
+test("state + minDateISO are configurable via file and env", () => {
+  const withFile = loadConfig(
+    { ...base, minDateISO: "2026-07-01", state: { file: "s.json", cooldownSec: 60 } },
+    {},
+  );
+  assert.equal(withFile.minDateISO, "2026-07-01");
+  assert.equal(withFile.state.file, "s.json");
+  assert.equal(withFile.state.cooldownSec, 60);
+  assert.equal(withFile.state.captureDir, "captures"); // untouched default
+
+  const withEnv = loadConfig(base, {
+    MIN_DATE_ISO: "2026-08-15",
+    STATE_FILE: "/tmp/state.json",
+  });
+  assert.equal(withEnv.minDateISO, "2026-08-15");
+  assert.equal(withEnv.state.file, "/tmp/state.json");
+});
+
 test("throws on invalid target servicio", () => {
   assert.throws(() =>
     loadConfig({ ...base, target: { servicio: -1, centro: 5 } }, {}),

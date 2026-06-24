@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runLoop, type LoopDeps } from "../src/loop.ts";
+import { MonitorState } from "../src/state.ts";
 import type { Config, Target } from "../src/types.ts";
 
 const config: Config = {
@@ -25,6 +26,8 @@ const config: Config = {
     timezone: "Europe/Madrid",
   },
   backoff: { baseSec: 30, factor: 2, capSec: 900 },
+  state: { cooldownSec: 21600, captureDir: "captures" },
+  minDateISO: "2026-06-27",
 };
 
 const matrix: Target[] = [
@@ -56,10 +59,18 @@ function harness(opts: {
   routes: (url: string) => Response;
   cycles: number;
   now?: () => Date;
-}): { deps: LoopDeps; calls: string[]; sleeps: number[]; logs: string[] } {
+  state?: MonitorState;
+}): {
+  deps: LoopDeps;
+  calls: string[];
+  sleeps: number[];
+  logs: string[];
+  captures: Array<{ target: Target; firstAvailable: unknown }>;
+} {
   const calls: string[] = [];
   const sleeps: number[] = [];
   const logs: string[] = [];
+  const captures: Array<{ target: Target; firstAvailable: unknown }> = [];
   let cycleSleeps = 0;
   const fetchImpl = (async (url: string | URL) => {
     calls.push(String(url));
@@ -72,6 +83,9 @@ function harness(opts: {
     rng: () => 0.5,
     log: (m) => logs.push(m),
     buildMatrix: async () => matrix,
+    // Record capture-on-hit instead of touching disk (§8.4).
+    capture: (target, firstAvailable) => captures.push({ target, firstAvailable }),
+    state: opts.state,
     sleep: async (ms) => {
       sleeps.push(ms);
       // The big inter-cycle delay is the cycle boundary; count those.
@@ -79,7 +93,7 @@ function harness(opts: {
     },
     shouldContinue: () => cycleSleeps < opts.cycles,
   };
-  return { deps, calls, sleeps, logs };
+  return { deps, calls, sleeps, logs, captures };
 }
 
 test("each cycle polls every target and staggers requests", async () => {
@@ -128,6 +142,120 @@ test("notifies via Telegram on a HIT and continues", async () => {
 
   const tg = calls.filter((u) => u.includes("api.telegram.org"));
   assert.equal(tg.length, 1);
+});
+
+// A slot that lingers unchanged for many cycles must alert only once (§FR6).
+test("de-dup: a lingering slot is alerted once across cycles, not every cycle", async () => {
+  const { deps, calls } = harness({
+    cycles: 3,
+    routes: (url) => {
+      if (url.includes("index.html")) return indexResp();
+      if (url.includes("primera/disponible"))
+        return url.includes("/centro/6/")
+          ? jsonResp({ dias: ["2026-06-27"], dias_calendario: [] })
+          : jsonResp({ dias: [], dias_calendario: [] });
+      if (url.includes("/calendario"))
+        return jsonResp({ periodos: [{ nombre_centro: "B" }] });
+      if (url.includes("api.telegram.org")) return jsonResp({ ok: true });
+      throw new Error(`unexpected url ${url}`);
+    },
+  });
+
+  await runLoop(config, deps);
+
+  // Three cycles polled the slot, but only the first sent an alert.
+  const polls = calls.filter(
+    (u) => u.includes("primera/disponible") && u.includes("/centro/6/"),
+  );
+  assert.equal(polls.length, 3);
+  const tg = calls.filter((u) => u.includes("api.telegram.org"));
+  assert.equal(tg.length, 1);
+});
+
+// PRD §8.4 — the first real HIT dumps the raw §3.2 + §3.3 payloads exactly once.
+test("capture-on-hit fires once with both raw payloads", async () => {
+  const { deps, captures } = harness({
+    cycles: 3,
+    routes: (url) => {
+      if (url.includes("index.html")) return indexResp();
+      if (url.includes("primera/disponible"))
+        return url.includes("/centro/6/")
+          ? jsonResp({ dias: ["2026-06-27"], dias_calendario: [] })
+          : jsonResp({ dias: [], dias_calendario: [] });
+      if (url.includes("/calendario"))
+        return jsonResp({ periodos: [{ id_periodo: 6 }] });
+      if (url.includes("api.telegram.org")) return jsonResp({ ok: true });
+      throw new Error(`unexpected url ${url}`);
+    },
+  });
+
+  await runLoop(config, deps);
+
+  assert.equal(captures.length, 1);
+  assert.equal(captures[0].target.centro, 6);
+  assert.deepEqual(captures[0].firstAvailable, {
+    dias: ["2026-06-27"],
+    dias_calendario: [],
+  });
+});
+
+// PRD §FR1 — availability whose dates all precede minDateISO is not actionable.
+test("date filter: a slot entirely before minDateISO does not alert", async () => {
+  const { deps, calls } = harness({
+    cycles: 1,
+    routes: (url) => {
+      if (url.includes("index.html")) return indexResp();
+      if (url.includes("primera/disponible"))
+        return url.includes("/centro/6/")
+          ? jsonResp({ dias: ["2026-06-01"], dias_calendario: [] }) // too early
+          : jsonResp({ dias: [], dias_calendario: [] });
+      if (url.includes("api.telegram.org"))
+        throw new Error("must not alert on a too-early slot");
+      throw new Error(`unexpected url ${url}`);
+    },
+  });
+
+  await runLoop(config, deps);
+
+  assert.equal(calls.filter((u) => u.includes("api.telegram.org")).length, 0);
+});
+
+// PRD §FR6 — a slot that disappears and later reappears re-alerts.
+test("disappear→reappear re-alerts even with the same signature", async () => {
+  // Shared state across two separate single-cycle runs simulates: HIT, gone, HIT.
+  const state = new MonitorState();
+  const slot = (present: boolean) =>
+    harness({
+      cycles: 1,
+      state,
+      routes: (url) => {
+        if (url.includes("index.html")) return indexResp();
+        if (url.includes("primera/disponible"))
+          return url.includes("/centro/6/") && present
+            ? jsonResp({ dias: ["2026-06-27"], dias_calendario: [] })
+            : jsonResp({ dias: [], dias_calendario: [] });
+        if (url.includes("/calendario"))
+          return jsonResp({ periodos: [{ nombre_centro: "B" }] });
+        if (url.includes("api.telegram.org")) return jsonResp({ ok: true });
+        throw new Error(`unexpected url ${url}`);
+      },
+    });
+
+  const present1 = slot(true);
+  await runLoop(config, present1.deps); // HIT → alert
+  const absent = slot(false);
+  await runLoop(config, absent.deps); // gone → clears state
+  const present2 = slot(true);
+  await runLoop(config, present2.deps); // reappears → alert again
+
+  assert.equal(
+    present1.calls.filter((u) => u.includes("api.telegram.org")).length,
+    1,
+  );
+  assert.equal(
+    present2.calls.filter((u) => u.includes("api.telegram.org")).length,
+    1,
+  );
 });
 
 test("a single target's failure does not kill the loop", async () => {

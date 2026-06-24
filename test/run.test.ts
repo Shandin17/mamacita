@@ -25,6 +25,8 @@ const config: Config = {
     timezone: "Europe/Madrid",
   },
   backoff: { baseSec: 30, factor: 2, capSec: 900 },
+  state: { cooldownSec: 21600, captureDir: "captures" },
+  minDateISO: "2026-06-27",
 };
 
 const indexResp = () =>

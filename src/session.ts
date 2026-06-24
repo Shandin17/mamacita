@@ -105,14 +105,20 @@ export type EnrichedNames = {
   idPeriodo?: number;
 };
 
-// PRD §3.3 — calendar window, used only to enrich names / id_periodo.
-export async function enrichNames(
+// PRD §3.3 — fetch the raw calendar window. Returned verbatim so callers can
+// both enrich notifications and capture the payload on-hit (§8.4).
+export async function fetchCalendar(
   target: Target,
   jar: CookieJar,
   fetchImpl: typeof fetch = fetch,
-): Promise<EnrichedNames> {
+): Promise<unknown> {
   const url = `${API_BASE}/citaPrevia/disponible/centro/${target.centro}/servicio/${target.servicio}/calendario`;
-  const data = (await getJson(url, jar, fetchImpl)) as {
+  return getJson(url, jar, fetchImpl);
+}
+
+// Pull the human-readable names + id_periodo out of a raw §3.3 calendar payload.
+export function extractEnrichedNames(raw: unknown): EnrichedNames {
+  const data = (raw ?? {}) as {
     periodos?: Array<{
       id_periodo?: number;
       nombre_centro?: string;
@@ -125,4 +131,13 @@ export async function enrichNames(
     centroName: periodo?.nombre_centro,
     idPeriodo: periodo?.id_periodo,
   };
+}
+
+// PRD §3.3 — calendar window, used only to enrich names / id_periodo.
+export async function enrichNames(
+  target: Target,
+  jar: CookieJar,
+  fetchImpl: typeof fetch = fetch,
+): Promise<EnrichedNames> {
+  return extractEnrichedNames(await fetchCalendar(target, jar, fetchImpl));
 }
