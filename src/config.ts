@@ -24,10 +24,29 @@ const telegramSchema = z.object({
   chatId: z.string().min(1, "telegram.chatId is required"),
 });
 
+// PRD §FR4/§FR7 — jittered, time-gated scheduling; every threshold configurable.
+const scheduleSchema = z
+  .object({
+    baseSec: z.number().positive().default(180),
+    jitterSec: z.number().nonnegative().default(60),
+    staggerMinSec: z.number().nonnegative().default(1.5),
+    staggerMaxSec: z.number().nonnegative().default(3),
+    activeStartHour: z.number().int().min(0).max(23).default(7),
+    activeEndHour: z.number().int().min(1).max(24).default(15),
+    activeDays: z
+      .array(z.number().int().min(0).max(6))
+      .default([1, 2, 3, 4, 5]), // Mon–Fri
+    timezone: z.string().default("Europe/Madrid"),
+  })
+  // prefault: treat a missing schedule as `{}` *before* parsing, so each
+  // field's own default fills in (a plain .default() wants the output type).
+  .prefault({});
+
 const configSchema = z.object({
   target: targetSchema,
   telegram: telegramSchema,
   profile: profileSchema,
+  schedule: scheduleSchema,
 });
 
 type Env = Record<string, string | undefined>;
@@ -45,6 +64,10 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     string,
     unknown
   >;
+  const schedule = { ...((base.schedule as object) ?? {}) } as Record<
+    string,
+    unknown
+  >;
 
   if (env.TARGET_SERVICIO !== undefined)
     target.servicio = Number(env.TARGET_SERVICIO);
@@ -55,7 +78,13 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
   if (env.TELEGRAM_CHAT_ID !== undefined)
     telegram.chatId = env.TELEGRAM_CHAT_ID;
 
-  return { ...base, target, telegram };
+  // §FR4 scheduling overrides.
+  if (env.POLL_BASE_SEC !== undefined) schedule.baseSec = Number(env.POLL_BASE_SEC);
+  if (env.POLL_JITTER_SEC !== undefined)
+    schedule.jitterSec = Number(env.POLL_JITTER_SEC);
+  if (env.POLL_TIMEZONE !== undefined) schedule.timezone = env.POLL_TIMEZONE;
+
+  return { ...base, target, telegram, schedule };
 }
 
 export function loadConfig(raw: unknown, env: Env = process.env): Config {

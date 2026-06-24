@@ -1,5 +1,5 @@
 import { CookieJar } from "./cookies.ts";
-import type { FirstAvailableResponse, Target } from "./types.ts";
+import type { CenterInfo, FirstAvailableResponse, Target } from "./types.ts";
 
 // PRD §3 / §7 — QSIGE backend + SPA session bootstrap.
 const API_BASE = "https://www.valencia.es/qsige.localizador";
@@ -63,6 +63,22 @@ export async function pollFirstAvailable(
 ): Promise<FirstAvailableResponse> {
   const url = `${API_BASE}/citaPrevia/primera/disponible/centro/${target.centro}/servicio/${target.servicio}`;
   return (await getJson(url, jar, fetchImpl)) as FirstAvailableResponse;
+}
+
+// PRD §3.1 — list the centers configured for a service. Used at startup to
+// resolve center IDs we don't hardcode (e.g. servicio 33 / Tabacalera).
+export async function listCenters(
+  servicio: number,
+  jar: CookieJar,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CenterInfo[]> {
+  const url = `${API_BASE}/citaPrevia/centros/servicio/disponible/${servicio}`;
+  const data = (await getJson(url, jar, fetchImpl)) as Array<{
+    centros?: Array<{ id_centro?: number; nombre?: string; direccion?: string }>;
+  }>;
+  return (Array.isArray(data) ? data : [])
+    .flatMap((group) => group.centros ?? [])
+    .filter((c): c is CenterInfo => typeof c.id_centro === "number");
 }
 
 export type EnrichedNames = {

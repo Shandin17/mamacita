@@ -14,6 +14,16 @@ const config: Config = {
     telefono: "600000000",
     email: "valerii@example.com",
   },
+  schedule: {
+    baseSec: 180,
+    jitterSec: 60,
+    staggerMinSec: 1.5,
+    staggerMaxSec: 3,
+    activeStartHour: 7,
+    activeEndHour: 15,
+    activeDays: [1, 2, 3, 4, 5],
+    timezone: "Europe/Madrid",
+  },
 };
 
 const indexResp = () =>
