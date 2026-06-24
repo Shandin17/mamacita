@@ -110,6 +110,23 @@ export async function runLoop(
   const live = config.liveness;
   let updateOffset = 0;
 
+  // Best-effort liveness send: log on success, swallow + log on failure so a
+  // transient Telegram error never stops the poll loop. Returns whether it sent.
+  const notify = async (
+    text: string,
+    okLog: string,
+    errLabel: string,
+  ): Promise<boolean> => {
+    try {
+      await sendTelegramMessage(config.telegram, text, fetchImpl);
+      log(okLog);
+      return true;
+    } catch (err) {
+      log(`${errLabel} failed: ${(err as Error).message}`);
+      return false;
+    }
+  };
+
   // Service the on-demand /status command and the daily heartbeat. Runs every
   // cycle — including blocked ones — so the user can always query a degraded
   // monitor. All Telegram I/O is best-effort: a failure here never stops polling.
@@ -135,17 +152,12 @@ export async function runLoop(
     }
 
     if (liveness.dueForHeartbeat(now(), live.heartbeatHour, sched.timezone)) {
-      try {
-        await sendTelegramMessage(
-          config.telegram,
-          buildHeartbeatText(liveness.snapshot(backoff.isBackedOff), now()),
-          fetchImpl,
-        );
-        liveness.markHeartbeatSent(now(), sched.timezone);
-        log("daily heartbeat sent");
-      } catch (err) {
-        log(`heartbeat failed: ${(err as Error).message}`);
-      }
+      const sent = await notify(
+        buildHeartbeatText(liveness.snapshot(backoff.isBackedOff), now()),
+        "daily heartbeat sent",
+        "heartbeat",
+      );
+      if (sent) liveness.markHeartbeatSent(now(), sched.timezone);
     }
   };
 
@@ -202,27 +214,17 @@ export async function runLoop(
     const allFailed = polled > 0 && failures === polled;
     const cycle = liveness.recordCycle(allFailed, live.degradedThreshold);
     if (cycle.degradedTripped) {
-      try {
-        await sendTelegramMessage(
-          config.telegram,
-          buildDegradedText(liveness.snapshot(backoff.isBackedOff)),
-          fetchImpl,
-        );
-        log(`degraded-state alert sent after ${live.degradedThreshold} failed cycles`);
-      } catch (err) {
-        log(`degraded alert failed: ${(err as Error).message}`);
-      }
+      await notify(
+        buildDegradedText(liveness.snapshot(backoff.isBackedOff)),
+        `degraded-state alert sent after ${live.degradedThreshold} failed cycles`,
+        "degraded alert",
+      );
     } else if (cycle.recovered) {
-      try {
-        await sendTelegramMessage(
-          config.telegram,
-          buildRecoveredText(liveness.snapshot(backoff.isBackedOff)),
-          fetchImpl,
-        );
-        log("recovery alert sent");
-      } catch (err) {
-        log(`recovery alert failed: ${(err as Error).message}`);
-      }
+      await notify(
+        buildRecoveredText(liveness.snapshot(backoff.isBackedOff)),
+        "recovery alert sent",
+        "recovery alert",
+      );
     }
 
     // §FR4/§FR5: every target failing means the session is dead or we're
