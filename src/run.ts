@@ -9,6 +9,7 @@ import {
   extractEnrichedNames,
   type EnrichedNames,
 } from "./session.ts";
+import { buildTargetMatrix } from "./targets.ts";
 import { sendTelegramAlert } from "./telegram.ts";
 import type { Config, Hit, Target, TelegramConfig } from "./types.ts";
 
@@ -124,7 +125,9 @@ export async function pollAndNotify(
     servicio: target.servicio,
     centro: target.centro,
     servicioName: enriched.servicioName,
-    centroName: enriched.centroName,
+    // §3.3 enrich wins; fall back to the §3.1 discovery metadata (FR1).
+    centroName: enriched.centroName ?? target.centroName,
+    direccion: target.direccion,
     idPeriodo: enriched.idPeriodo,
     raw: payload,
     detectedAt,
@@ -140,8 +143,9 @@ export async function pollAndNotify(
   return { hit: true, alerted: true, detectedAt };
 }
 
-// PRD §2 tracer bullet: one session bootstrap + one poll + conditional alert.
-// Uses ephemeral in-memory state (no persistence, no capture) — de-dup and
+// PRD §2 tracer bullet: one session bootstrap + auto-discover the target matrix
+// (§3.1/FR1) + one poll per discovered target + conditional alert. Uses
+// ephemeral in-memory state (no persistence, no capture) — de-dup and
 // capture-on-hit are production-loop concerns (FR6 / §8.4).
 export async function runOnce(
   config: Config,
@@ -155,10 +159,38 @@ export async function runOnce(
   await bootstrapSession(jar, fetchImpl);
   log(`session bootstrapped (cookies: ${jar.isEmpty() ? "none" : "ok"})`);
 
+  // §FR1 — discover all (servicio, centro) targets for the configured services.
+  const targets = await buildTargetMatrix(config.services, jar, fetchImpl, log);
+  log(`target matrix built: ${targets.length} targets`);
+
   const policy: PollPolicy = {
     state: new MonitorState(),
     minDateISO: config.minDateISO,
     cooldownMs: config.state.cooldownSec * 1000,
   };
-  return pollAndNotify(config.target, config.telegram, jar, deps, policy);
+
+  // Poll every target once; a single target's failure must not stop the rest
+  // (§FR1). Aggregate to "hit if any target hit / alerted".
+  let aggregate: RunResult = { hit: false };
+  for (const target of targets) {
+    try {
+      const result = await pollAndNotify(
+        target,
+        config.telegram,
+        jar,
+        deps,
+        policy,
+      );
+      if (result.alerted)
+        aggregate = {
+          hit: true,
+          alerted: true,
+          detectedAt: result.detectedAt,
+        };
+      else if (result.hit && !aggregate.alerted) aggregate = { ...result };
+    } catch (err) {
+      log(`target ${targetLabel(target)} failed: ${(err as Error).message}`);
+    }
+  }
+  return aggregate;
 }

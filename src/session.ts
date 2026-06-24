@@ -84,7 +84,7 @@ export async function pollFirstAvailable(
 }
 
 // PRD §3.1 — list the centers configured for a service. Used at startup to
-// resolve center IDs we don't hardcode (e.g. servicio 33 / Tabacalera).
+// auto-discover every center per configured service (FR1) — no hardcoded IDs.
 export async function listCenters(
   servicio: number,
   jar: CookieJar,

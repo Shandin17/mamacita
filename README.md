@@ -24,16 +24,31 @@ cp config.example.json config.json   # then edit config.json
 
 `config.json` is gitignored — keep your real values there. Secrets can also be
 supplied via env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
-`TARGET_SERVICIO`, `TARGET_CENTRO`, `POLL_BASE_SEC`, `POLL_JITTER_SEC`,
+`SERVICES`, `POLL_BASE_SEC`, `POLL_JITTER_SEC`,
 `POLL_TIMEZONE`, `BACKOFF_BASE_SEC`, `BACKOFF_FACTOR`, `BACKOFF_CAP_SEC`,
 `MANUAL_COOKIE`, `HEARTBEAT_HOUR`, `DEGRADED_THRESHOLD`, `STATUS_COMMAND`),
-which override the file.
+which override the file. `SERVICES` is a comma-separated list, e.g.
+`SERVICES="16,99"`.
+
+### Multi-office auto-discovery (PRD v2 §FR1)
+
+You configure **services**, not offices. At startup the monitor calls the
+QSIGE centers endpoint (§3.1) for each configured service and builds the full
+target set = every `(servicio, centro)` pair. Office IDs are **never
+hardcoded**, so new padrón offices are picked up automatically; re-discovery
+happens on each restart. The padrón services are `16` (Juntas Municipales, ~7
+offices) and `99` (Arzobispo Mayoral / G.T.I., 1 office) — the default
+`services` value. A service whose discovery fails is skipped for that run and
+the rest still poll.
+
+> **Migration from v1:** the old single `target` field is gone — replace it with
+> `services`.
 
 `config.json` shape (see `config.example.json`):
 
 ```json
 {
-  "target": { "servicio": 16, "centro": 5, "label": "Junta de Distrito Transits" },
+  "services": [16, 99],
   "telegram": { "botToken": "", "chatId": "" },
   "backoff":  { "baseSec": 30, "factor": 2, "capSec": 900 },
   "manualCookie": "",

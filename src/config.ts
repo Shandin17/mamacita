@@ -13,11 +13,12 @@ const profileSchema = z.object({
   observaciones: z.string().optional(),
 });
 
-const targetSchema = z.object({
-  servicio: z.number().int().positive(),
-  centro: z.number().int().positive(),
-  label: z.string().optional(),
-});
+// PRD v2 §FR1/§FR7 — services to watch; centers are auto-discovered per service
+// (§3.1), so no office IDs are configured. Default to the two padrón services.
+const servicesSchema = z
+  .array(z.number().int().positive())
+  .nonempty()
+  .default([16, 99]);
 
 const telegramSchema = z.object({
   botToken: z.string().min(1, "telegram.botToken is required"),
@@ -73,7 +74,7 @@ const livenessSchema = z
   .prefault({});
 
 const configSchema = z.object({
-  target: targetSchema,
+  services: servicesSchema,
   telegram: telegramSchema,
   profile: profileSchema,
   schedule: scheduleSchema,
@@ -102,10 +103,6 @@ function asRecord(raw: unknown): Record<string, unknown> {
 
 function applyEnvOverrides(raw: unknown, env: Env): unknown {
   const base = asRecord(raw);
-  const target = { ...((base.target as object) ?? {}) } as Record<
-    string,
-    unknown
-  >;
   const telegram = { ...((base.telegram as object) ?? {}) } as Record<
     string,
     unknown
@@ -127,10 +124,14 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     unknown
   >;
 
-  if (env.TARGET_SERVICIO !== undefined)
-    target.servicio = Number(env.TARGET_SERVICIO);
-  if (env.TARGET_CENTRO !== undefined)
-    target.centro = Number(env.TARGET_CENTRO);
+  // §FR1 — comma-separated service IDs, e.g. SERVICES="16,99".
+  const services =
+    env.SERVICES !== undefined
+      ? env.SERVICES.split(",")
+          .map((s) => Number(s.trim()))
+          .filter((n) => !Number.isNaN(n))
+      : base.services;
+
   if (env.TELEGRAM_BOT_TOKEN !== undefined)
     telegram.botToken = env.TELEGRAM_BOT_TOKEN;
   if (env.TELEGRAM_CHAT_ID !== undefined)
@@ -169,7 +170,7 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
 
   const out: Record<string, unknown> = {
     ...base,
-    target,
+    services,
     telegram,
     schedule,
     backoff,

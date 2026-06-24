@@ -34,8 +34,9 @@ export type LoopDeps = {
   log?: (message: string) => void;
   // Stop predicate, checked each cycle/target — lets tests bound the loop.
   shouldContinue?: () => boolean;
-  // Injectable matrix builder (defaults to §3.4 + §3.1 resolution).
+  // Injectable matrix builder (defaults to §3.1 auto-discovery per service).
   buildMatrix?: (
+    services: number[],
     jar: CookieJar,
     fetchImpl: typeof fetch,
     log: (m: string) => void,
@@ -94,8 +95,10 @@ export async function runLoop(
   if (config.manualCookie) log("manual cookie override loaded from config");
   await refreshSession("bootstrapped");
 
-  const targets = await buildMatrix(jar, fetchImpl, log);
-  log(`target matrix built: ${targets.length} targets`);
+  const targets = await buildMatrix(config.services, jar, fetchImpl, log);
+  log(
+    `target matrix built: ${targets.length} targets across services [${config.services.join(", ")}]`,
+  );
 
   // §FR4/§FR5: exponential backoff applied when a whole cycle is blocked.
   const backoff = new Backoff({

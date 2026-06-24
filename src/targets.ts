@@ -2,60 +2,51 @@ import { CookieJar } from "./cookies.ts";
 import { listCenters } from "./session.ts";
 import type { Target } from "./types.ts";
 
-// PRD §3.4 — known padrón services and their centers.
+// PRD v2 §3.4 — known padrón services. Centers are NOT hardcoded: every center
+// is auto-discovered per service via §3.1 at startup (FR1), so new offices are
+// picked up automatically.
 export const SERVICIO_JUNTAS = 16;
 export const SERVICIO_GTI = 99;
-export const SERVICIO_TABACALERA = 33;
 
-// servicio 16 (Juntas Municipales) — 7 hardcoded centers (§3.4).
-export const JUNTAS_CENTERS: Array<{ centro: number; label: string }> = [
-  { centro: 7, label: "Abastos" },
-  { centro: 6, label: "Exposición" },
-  { centro: 1, label: "Marítimo" },
-  { centro: 2, label: "Patraix" },
-  { centro: 4, label: "Ruzafa" },
-  { centro: 5, label: "Transits" },
-  { centro: 14, label: "Pobles del Sud" },
-];
-
-// The portion of the target matrix that is known statically (§3.4).
-export const STATIC_TARGETS: Target[] = [
-  ...JUNTAS_CENTERS.map((c) => ({
-    servicio: SERVICIO_JUNTAS,
-    centro: c.centro,
-    label: `Juntas — ${c.label}`,
-  })),
-  { servicio: SERVICIO_GTI, centro: 10, label: "Arzobispo Mayoral — G.T.I." },
-];
-
-// PRD §3.4: servicio 33 (Tabacalera) centers are TBD — resolve via §3.1 at
-// startup. A failure here is non-fatal: we just skip Tabacalera this run.
-export async function resolveTabacaleraTargets(
+// PRD v2 §FR1 — auto-discover every center for one service via §3.1, mapping
+// each to a (servicio, centro) target carrying the §3.1 name/address so
+// notifications can show them. A failure is non-fatal: log and skip the service
+// so the others still run.
+export async function discoverCenters(
+  servicio: number,
   jar: CookieJar,
   fetchImpl: typeof fetch = fetch,
   log: (message: string) => void = () => {},
 ): Promise<Target[]> {
   try {
-    const centers = await listCenters(SERVICIO_TABACALERA, jar, fetchImpl);
+    const centers = await listCenters(servicio, jar, fetchImpl);
     return centers.map((c) => ({
-      servicio: SERVICIO_TABACALERA,
+      servicio,
       centro: c.id_centro,
-      label: `Tabacalera — ${c.nombre ?? c.id_centro}`,
+      label: `servicio ${servicio} — ${c.nombre ?? c.id_centro}`,
+      centroName: c.nombre,
+      direccion: c.direccion,
     }));
   } catch (err) {
     log(
-      `tabacalera center resolution failed (continuing without it): ${(err as Error).message}`,
+      `center discovery for servicio ${servicio} failed (skipping it this run): ${(err as Error).message}`,
     );
     return [];
   }
 }
 
-// Full target matrix = static §3.4 targets ∪ resolved Tabacalera centers.
+// PRD v2 §FR1 — the full target matrix = every auto-discovered (servicio,
+// centro) pair across the configured services. Discovered fresh at startup (and
+// on each restart) so new offices appear without code changes.
 export async function buildTargetMatrix(
+  services: number[],
   jar: CookieJar,
   fetchImpl: typeof fetch = fetch,
   log: (message: string) => void = () => {},
 ): Promise<Target[]> {
-  const tabacalera = await resolveTabacaleraTargets(jar, fetchImpl, log);
-  return [...STATIC_TARGETS, ...tabacalera];
+  const matrix: Target[] = [];
+  for (const servicio of services) {
+    matrix.push(...(await discoverCenters(servicio, jar, fetchImpl, log)));
+  }
+  return matrix;
 }

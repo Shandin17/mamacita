@@ -14,6 +14,10 @@ export type Target = {
   servicio: number;
   centro: number;
   label?: string;
+  // §3.1 metadata captured at discovery (FR1) — used to enrich notifications
+  // when the §3.3 calendar enrich is unavailable.
+  centroName?: string;
+  direccion?: string;
 };
 
 export type Hit = {
@@ -69,7 +73,9 @@ export type LivenessConfig = {
 };
 
 export type Config = {
-  target: Target;
+  // §FR1/§FR7 — services to watch; centers auto-discovered per service (§3.1).
+  // Replaces v1's single `target`.
+  services: number[];
   telegram: TelegramConfig;
   profile: CustomerProfile;
   schedule: ScheduleConfig;

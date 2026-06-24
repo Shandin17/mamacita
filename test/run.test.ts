@@ -4,7 +4,7 @@ import { runOnce } from "../src/run.ts";
 import type { Config } from "../src/types.ts";
 
 const config: Config = {
-  target: { servicio: 16, centro: 5, label: "Transits" },
+  services: [16],
   telegram: { botToken: "BOT", chatId: "CHAT" },
   profile: {
     nombre: "Valerii",
@@ -45,6 +45,18 @@ const jsonResp = (obj: unknown) =>
     headers: { "content-type": "application/json" },
   });
 
+// §3.1 auto-discovery (FR1): servicio 16 resolves to a single center (Transits).
+const centrosResp = () =>
+  jsonResp([
+    {
+      centros: [
+        { id_centro: 5, nombre: "Junta de Distrito Transits", direccion: "VALENCIA" },
+      ],
+    },
+  ]);
+const isCentros = (url: string) =>
+  url.includes("/centros/servicio/disponible/");
+
 function fetchRouter(routes: (url: string) => Response) {
   const calls: string[] = [];
   const fn = (async (url: string | URL) => {
@@ -60,6 +72,7 @@ test("empty response logs 'no slot' and does not notify", async () => {
   const logs: string[] = [];
   const { fn, calls } = fetchRouter((url) => {
     if (url.includes("index.html")) return indexResp();
+    if (isCentros(url)) return centrosResp();
     if (url.includes("primera/disponible"))
       return jsonResp({ dias: [], dias_calendario: [], periodos: [] });
     if (url.includes("api.telegram.org"))
@@ -83,6 +96,7 @@ test("non-empty dias is detected as a HIT and notifies via Telegram", async () =
   let telegramBody: any = null;
   const { fn, calls } = fetchRouter((url) => {
     if (url.includes("index.html")) return indexResp();
+    if (isCentros(url)) return centrosResp();
     if (url.includes("primera/disponible"))
       return jsonResp({ dias: ["2026-06-27"], dias_calendario: [] });
     if (url.includes("/calendario"))
@@ -120,6 +134,7 @@ test("telegram message carries enriched names, timestamp and deep-link button", 
   const fn = (async (url: string | URL, init?: RequestInit) => {
     const u = String(url);
     if (u.includes("index.html")) return indexResp();
+    if (isCentros(u)) return centrosResp();
     if (u.includes("primera/disponible"))
       return jsonResp({ dias: ["2026-06-27"], dias_calendario: [] });
     if (u.includes("/calendario"))

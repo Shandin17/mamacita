@@ -1,5 +1,5 @@
 {
-  "target": { "servicio": 16, "centro": 5, "label": "Junta de Distrito Transits" },
+  "services": [16, 99],
   "telegram": { "botToken": "", "chatId": "" },
   "schedule": {
     "baseSec": 180,

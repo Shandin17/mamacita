@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { loadConfig } from "../src/config.ts";
 
 const base = {
-  target: { servicio: 16, centro: 5, label: "Transits" },
+  services: [16, 99],
   telegram: { botToken: "FILE_TOKEN", chatId: "FILE_CHAT" },
   profile: {
     nombre: "Valerii",
@@ -17,22 +17,26 @@ const base = {
 
 test("loads a valid config object unchanged", () => {
   const cfg = loadConfig(base, {});
-  assert.equal(cfg.target.servicio, 16);
+  assert.deepEqual(cfg.services, [16, 99]);
   assert.equal(cfg.telegram.botToken, "FILE_TOKEN");
   assert.equal(cfg.profile.nombre, "Valerii");
 });
 
-test("env overrides telegram credentials and target", () => {
+test("services default to [16, 99] when absent (§FR1)", () => {
+  const { services: _omit, ...noServices } = base;
+  const cfg = loadConfig(noServices, {});
+  assert.deepEqual(cfg.services, [16, 99]);
+});
+
+test("env overrides telegram credentials and services", () => {
   const cfg = loadConfig(base, {
     TELEGRAM_BOT_TOKEN: "ENV_TOKEN",
     TELEGRAM_CHAT_ID: "ENV_CHAT",
-    TARGET_SERVICIO: "99",
-    TARGET_CENTRO: "10",
+    SERVICES: "16, 99, 33",
   });
   assert.equal(cfg.telegram.botToken, "ENV_TOKEN");
   assert.equal(cfg.telegram.chatId, "ENV_CHAT");
-  assert.equal(cfg.target.servicio, 99);
-  assert.equal(cfg.target.centro, 10);
+  assert.deepEqual(cfg.services, [16, 99, 33]);
 });
 
 test("env can supply credentials missing from the file (no secrets in code)", () => {
@@ -157,10 +161,12 @@ test("liveness is configurable via file and env", () => {
   assert.equal(withEnv.liveness.statusCommand, false);
 });
 
-test("throws on invalid target servicio", () => {
-  assert.throws(() =>
-    loadConfig({ ...base, target: { servicio: -1, centro: 5 } }, {}),
-  );
+test("throws on invalid service id", () => {
+  assert.throws(() => loadConfig({ ...base, services: [-1] }, {}));
+});
+
+test("throws on empty services list", () => {
+  assert.throws(() => loadConfig({ ...base, services: [] }, {}));
 });
 
 test("throws when telegram credentials are missing entirely", () => {

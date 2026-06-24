@@ -5,7 +5,7 @@ import { MonitorState } from "../src/state.ts";
 import type { Config, Target } from "../src/types.ts";
 
 const config: Config = {
-  target: { servicio: 16, centro: 5, label: "Transits" },
+  services: [16, 99],
   telegram: { botToken: "BOT", chatId: "CHAT" },
   profile: {
     nombre: "Valerii",
