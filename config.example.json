@@ -1,0 +1,13 @@
+{
+  "target": { "servicio": 16, "centro": 5, "label": "Junta de Distrito Transits" },
+  "telegram": { "botToken": "", "chatId": "" },
+  "profile": {
+    "nombre": "Valerii",
+    "apellidos": "Shandin",
+    "tipoDocumento": "NIF/NIE",
+    "documento": "Z4610343K",
+    "telefono": "600000000",
+    "email": "you@example.com",
+    "observaciones": "Alta en el padrón"
+  }
+}
