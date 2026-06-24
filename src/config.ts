@@ -79,7 +79,8 @@ function applyEnvOverrides(raw: unknown, env: Env): unknown {
     telegram.chatId = env.TELEGRAM_CHAT_ID;
 
   // §FR4 scheduling overrides.
-  if (env.POLL_BASE_SEC !== undefined) schedule.baseSec = Number(env.POLL_BASE_SEC);
+  if (env.POLL_BASE_SEC !== undefined)
+    schedule.baseSec = Number(env.POLL_BASE_SEC);
   if (env.POLL_JITTER_SEC !== undefined)
     schedule.jitterSec = Number(env.POLL_JITTER_SEC);
   if (env.POLL_TIMEZONE !== undefined) schedule.timezone = env.POLL_TIMEZONE;

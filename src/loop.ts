@@ -1,5 +1,5 @@
 import { CookieJar } from "./cookies.ts";
-import { pollAndNotify } from "./run.ts";
+import { pollAndNotify, targetLabel } from "./run.ts";
 import {
   computeCycleDelayMs,
   computeStaggerMs,
@@ -69,8 +69,7 @@ export async function runLoop(
       if (i > 0) await sleep(computeStaggerMs(sched, rng));
 
       const target = targets[i];
-      const label =
-        target.label ?? `servicio ${target.servicio}/centro ${target.centro}`;
+      const label = targetLabel(target);
       try {
         await pollAndNotify(target, config.telegram, jar, {
           fetchImpl,

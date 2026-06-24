@@ -17,6 +17,12 @@ export type RunDeps = {
 
 export type RunResult = { hit: boolean; detectedAt?: string };
 
+// Human-readable label for a target — its configured label, or a
+// servicio/centro fallback for matrix entries that don't carry one.
+export function targetLabel(target: Target): string {
+  return target.label ?? `servicio ${target.servicio}/centro ${target.centro}`;
+}
+
 // Poll a single target on an already-bootstrapped session: §3.2 poll →
 // detection (§3.2/FR1) → enrich (§3.3) → Telegram alert (§6/FR2). Reused by
 // both the tracer-bullet runOnce and the production loop.
@@ -30,8 +36,7 @@ export async function pollAndNotify(
   const now = deps.now ?? (() => new Date());
   const log = deps.log ?? (() => {});
 
-  const label =
-    target.label ?? `servicio ${target.servicio}/centro ${target.centro}`;
+  const label = targetLabel(target);
 
   // Poll §3.2 and apply the detection rule (§3.2/FR1).
   const payload = await pollFirstAvailable(target, jar, fetchImpl);
